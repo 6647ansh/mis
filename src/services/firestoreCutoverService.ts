@@ -1,5 +1,7 @@
+import { collection as firestoreCollection, onSnapshot as onFirestoreSnapshot } from 'firebase/firestore';
 import {
   auth,
+  firestore,
   firestoreDatabaseId,
   getFirebaseConnectionDiagnostics,
   isFirebaseConfigured,
@@ -71,6 +73,9 @@ import {
   FirestoreTenderDoc,
   MontexFirestoreService,
   firestoreService,
+  ALL_FIRESTORE_COLLECTIONS,
+  COLLECTION_PRIMARY_KEY_FIELD,
+  FirestoreCollectionName,
 } from './firestoreService';
 import {
   mapActionQueueToFirestoreDoc,
@@ -187,6 +192,12 @@ export interface CutoverWriteResult<T = void> {
   /** Set when the main record saved but a follow-up write did not. */
   warning?: string;
   data?: T;
+}
+
+/** Where loadProductionSnapshot reads documents from (live listener cache or Firestore). */
+export interface SnapshotDocSource {
+  list<T>(name: FirestoreCollectionName): Promise<{ success: boolean; items: T[]; message?: string }>;
+  get<T>(name: FirestoreCollectionName, id: string): Promise<{ success: boolean; data?: T | null }>;
 }
 
 export interface ProductionFirestoreSnapshot {
@@ -467,7 +478,20 @@ export class MontexCutoverEngine {
    * Loads all authorized collections from Firestore for an authenticated user.
    * CRITICAL: Never falls back to MOCK_* or INITIAL_* demo data. Empty collections return [].
    */
-  async loadProductionSnapshot(user: UserProfile): Promise<ProductionFirestoreSnapshot> {
+  async loadProductionSnapshot(
+    user: UserProfile,
+    source?: SnapshotDocSource
+  ): Promise<ProductionFirestoreSnapshot> {
+    // Live listeners pass their cached documents in `source`; otherwise read once.
+    const listDocs = async <T,>(name: FirestoreCollectionName) => {
+      if (source) return source.list<T>(name);
+      const res = await this.fs.listDocuments<T>(name);
+      return { success: res.success, items: (res.items || res.data || []) as T[], message: res.message };
+    };
+    const getDocById = async <T,>(name: FirestoreCollectionName, id: string) => {
+      if (source) return source.get<T>(name, id);
+      return this.fs.getDocumentById<T>(name, id);
+    };
     const emptySnapshot: ProductionFirestoreSnapshot = {
       dashboardKpis: { ...ZERO_DASHBOARD_KPIS },
       productionSummary: { ...ZERO_PRODUCTION_SUMMARY },
@@ -524,9 +548,9 @@ export class MontexCutoverEngine {
 
     if (canRoleReadCollection(role, 'systemConfig')) {
       const [kpiRes, prodRes, threshRes] = await Promise.all([
-        this.fs.getDocumentById<FirestoreSystemConfigDoc>('systemConfig', 'dashboardKpis'),
-        this.fs.getDocumentById<FirestoreSystemConfigDoc>('systemConfig', 'productionSummary'),
-        this.fs.getDocumentById<FirestoreSystemConfigDoc>('systemConfig', 'alertThresholds'),
+        getDocById<FirestoreSystemConfigDoc>('systemConfig', 'dashboardKpis'),
+        getDocById<FirestoreSystemConfigDoc>('systemConfig', 'productionSummary'),
+        getDocById<FirestoreSystemConfigDoc>('systemConfig', 'alertThresholds'),
       ]);
       if (kpiRes.success && kpiRes.data) {
         emptySnapshot.dashboardKpis = mapFirestoreDocToDashboardKpis(
@@ -556,13 +580,13 @@ export class MontexCutoverEngine {
       if (!canRoleReadCollection(role, collectionName)) {
         return [];
       }
-      const res = await this.fs.listDocuments<TDoc>(collectionName);
+      const res = await listDocs<TDoc>(collectionName as FirestoreCollectionName);
       if (!res.success) {
         emptySnapshot.warnings.push(`/${collectionName}: ${res.message}`);
         return [];
       }
       loadedCount += 1;
-      return (res.items || res.data || []).map(mapper);
+      return (res.items || []).map(mapper);
     };
 
     const [
@@ -689,7 +713,7 @@ export class MontexCutoverEngine {
     // only by commercial roles; everyone else gets orders marked commercialRestricted.
     let commercialById = new Map<string, FirestoreOrderCommercialDoc>();
     if (canRoleReadCollection(role, 'orderCommercials') && salesOrders.length > 0) {
-      const comRes = await this.fs.listDocuments<FirestoreOrderCommercialDoc>('orderCommercials');
+      const comRes = await listDocs<FirestoreOrderCommercialDoc>('orderCommercials');
       if (comRes.success) {
         commercialById = new Map((comRes.items || []).map((c) => [c.orderId, c]));
       } else {
@@ -2277,6 +2301,77 @@ export class MontexCutoverEngine {
     return res.success
       ? undefined
       : `Order ${order.jobNumber || order.id} is saved, but its value and rates were not. Open the order and save it again.`;
+  }
+
+  /**
+   * Keeps the production snapshot live: one Firestore listener per collection the
+   * user's role may read. Every change rebuilds the snapshot from the listeners'
+   * cache (no re-download), debounced so a burst of writes renders once.
+   * Audit logs are not streamed (large, append-only); they load once.
+   */
+  subscribeProductionSnapshot(
+    user: UserProfile,
+    onSnapshot: (snap: ProductionFirestoreSnapshot) => void
+  ): () => void {
+    const role = user.role;
+    const names = ALL_FIRESTORE_COLLECTIONS.filter(
+      (name) => name !== 'auditLogs' && canRoleReadCollection(role, name)
+    );
+    const cache = new Map<FirestoreCollectionName, Record<string, any>[]>();
+    const errors = new Map<FirestoreCollectionName, string>();
+    let auditLogs: Record<string, any>[] | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    const source: SnapshotDocSource = {
+      list: async <T,>(name: FirestoreCollectionName) => {
+        if (name === 'auditLogs') {
+          if (auditLogs === null) {
+            const res = await this.fs.listDocuments('auditLogs', { pageSize: 200 });
+            auditLogs = res.success ? (res.items as Record<string, any>[]) : [];
+          }
+          return { success: true, items: auditLogs as T[] };
+        }
+        const err = errors.get(name);
+        return err
+          ? { success: false, items: [] as T[], message: err }
+          : { success: true, items: (cache.get(name) || []) as T[] };
+      },
+      get: async <T,>(name: FirestoreCollectionName, id: string) => {
+        const doc = (cache.get(name) || []).find((d) => d[COLLECTION_PRIMARY_KEY_FIELD[name]] === id || d.__id === id);
+        return { success: true, data: (doc as T) || null };
+      },
+    };
+
+    const rebuild = () => {
+      if (stopped || names.some((n) => !cache.has(n) && !errors.has(n))) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const snap = await this.loadProductionSnapshot(user, source);
+        if (!stopped) onSnapshot(snap);
+      }, 250);
+    };
+
+    const unsubs = names.map((name) =>
+      onFirestoreSnapshot(
+        firestoreCollection(firestore, name),
+        (qs) => {
+          errors.delete(name);
+          cache.set(name, qs.docs.map((d) => ({ __id: d.id, ...d.data() })));
+          rebuild();
+        },
+        (err) => {
+          errors.set(name, err?.message || 'Could not load this register.');
+          rebuild();
+        }
+      )
+    );
+
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      unsubs.forEach((u) => u());
+    };
   }
 
   async setOrderClearance(

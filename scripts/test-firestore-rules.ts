@@ -15,7 +15,7 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import {
   mapQualityInspectionToFirestoreDoc,
   mapUserProfileToFirestoreDoc,
@@ -165,6 +165,25 @@ async function main() {
   );
   await check('Pending employee can read own profile (to see approval)', () =>
     assertSucceeds(getDoc(doc(as('pending1'), 'users/pending1')))
+  );
+
+  // --- Listing (queries) — the old rules refused every listing -------------
+  await check('Active sales user can list sales orders', () =>
+    assertSucceeds(getDocs(collection(as('sales1'), 'salesOrders')))
+  );
+  await check('Active quality user can list customers', () =>
+    assertSucceeds(getDocs(collection(as('quality1'), 'customers')))
+  );
+  await check('CEO can list employees', () => assertSucceeds(getDocs(collection(as('ceo1'), 'users'))));
+  await check('Sales user cannot list employees', () => assertFails(getDocs(collection(as('sales1'), 'users'))));
+  await check('Pending employee cannot list sales orders', () =>
+    assertFails(getDocs(collection(as('pending1'), 'salesOrders')))
+  );
+  await check('Finance can list order values', () =>
+    assertSucceeds(getDocs(collection(as('finance1'), 'orderCommercials')))
+  );
+  await check('Dispatch cannot list order values', () =>
+    assertFails(getDocs(collection(as('dispatch1'), 'orderCommercials')))
   );
 
   // --- Self-registration and escalation ----------------------------------

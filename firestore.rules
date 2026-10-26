@@ -1215,7 +1215,9 @@ service cloud.firestore {
         isSuperAdmin() ||
         isCeo()
       );
-      allow list: if isActiveUser() && (isSuperAdmin() || isCeo()) && existing().uid is string;
+      // List rules must not test document fields: Firestore cannot prove them for a whole
+      // query, so a condition like existing().uid is string refused every listing.
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo());
       // Own-profile requests are checked first so they never pay for the admin checks
       // (evaluating every branch exceeded Firestore's 1000-expression limit).
       allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
@@ -1289,7 +1291,7 @@ service cloud.firestore {
     // Collection 2: /systemConfig/{configId}
     match /systemConfig/{configId} {
       allow get: if isActiveUser() && isValidId(configId);
-      allow list: if isActiveUser() && existing().configId is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(configId) && isValidSystemConfig(incoming(), configId) && (
         isSuperAdmin() ||
         isCeo() ||
@@ -1316,7 +1318,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isSales() || isStores() || isPurchase() || isQuality() || isDispatch() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(customerId) && isValidCustomer(incoming(), customerId) && (
         isSuperAdmin() || isCeo() || isSales() || isFinance()
       );
@@ -1330,7 +1332,7 @@ service cloud.firestore {
     // Collection 4: /products/{productId}
     match /products/{productId} {
       allow get: if isActiveUser() && isValidId(productId);
-      allow list: if isActiveUser() && existing().id is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(productId) && isValidProduct(incoming(), productId) && (
         isSuperAdmin() || isCeo() || isSales() || isQuality()
       );
@@ -1390,7 +1392,7 @@ service cloud.firestore {
 
     match /salesOrders/{orderId} {
       allow get: if isActiveUser() && isValidId(orderId);
-      allow list: if isActiveUser() && existing().orderId is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) && (
         isSuperAdmin() || isCeo() || isSales()
       );
@@ -1406,8 +1408,9 @@ service cloud.firestore {
     // Order value lives apart from the order because Firestore can't hide single fields:
     // production, stores, quality and dispatch see the order but not its value (Montex).
     match /orderCommercials/{orderId} {
-      allow get, list: if isActiveUser() && isValidId(orderId) &&
+      allow get: if isActiveUser() && isValidId(orderId) &&
         (isSuperAdmin() || isCeo() || isSales() || isFinance());
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo() || isSales() || isFinance());
       allow create, update: if isActiveUser() && isValidId(orderId) &&
         isValidOrderCommercial(incoming(), orderId) &&
         (resource == null || incoming().createdAt == existing().createdAt) &&
@@ -1421,7 +1424,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isSales() || isDispatch() || isFinance() || isStores()
-      ) && existing().id is string;
+      );
       // A consignment can only be created for an order with quality and finance clearance.
       allow create: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) &&
         'salesOrderId' in incoming() && isClearedForDispatch(incoming().salesOrderId) && (
@@ -1442,7 +1445,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isPurchase() || isQuality() || isSales() || isFinance()
-      ) && existing().gradeId is string;
+      );
       allow create: if isActiveUser() && isValidId(materialId) && isValidRawMaterial(incoming(), materialId) && (
         isSuperAdmin() || isCeo() || isStores()
       );
@@ -1460,7 +1463,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isPurchase() || isFinance() || isQuality()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(movementId) && isValidStockMovement(incoming(), movementId) && (
         isSuperAdmin() || isCeo() || isStores()
       );
@@ -1475,7 +1478,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isQuality() || isStores() || isSales() || isDispatch()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(inspectionId) && isValidQualityInspection(incoming(), inspectionId) && (
         isSuperAdmin() || isCeo() || isQuality()
       );
@@ -1494,7 +1497,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isFinance() || isSales()
-      ) && existing().invoiceId is string;
+      );
       allow create: if isActiveUser() && isValidId(paymentId) && isValidOutstandingPayment(incoming(), paymentId) && (
         isSuperAdmin() || isCeo() || isFinance()
       );
@@ -1508,7 +1511,7 @@ service cloud.firestore {
     // Collection 11: /actionQueue/{actionId}
     match /actionQueue/{actionId} {
       allow get: if isActiveUser() && isValidId(actionId);
-      allow list: if isActiveUser() && existing().id is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(actionId) && isValidActionQueueItem(incoming(), actionId);
       allow update: if isActiveUser() && isValidId(actionId) && isValidActionQueueItem(incoming(), actionId) &&
         incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
@@ -1524,7 +1527,7 @@ service cloud.firestore {
     // Collection 12: /auditLogs/{logId} (Append-Only Immutable Audit Trail)
     match /auditLogs/{logId} {
       allow get: if isActiveUser() && isValidId(logId) && (isSuperAdmin() || isCeo());
-      allow list: if isActiveUser() && (isSuperAdmin() || isCeo()) && existing().id is string;
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo());
       allow create: if isActiveUser() && isValidId(logId) && isValidAuditLog(incoming(), logId);
       allow update: if false;
       allow delete: if false;
@@ -1537,7 +1540,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isSales() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(quotationId) && isValidQuotation(incoming(), quotationId) && (
         isSuperAdmin() || isCeo() || isSales()
       );
@@ -1555,7 +1558,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isSales() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(tenderId) && isValidTender(incoming(), tenderId) && (
         isSuperAdmin() || isCeo() || isSales()
       );
@@ -1573,7 +1576,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isPurchase() || isStores() || isQuality() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(supplierId) && isValidSupplier(incoming(), supplierId) && (
         isSuperAdmin() || isCeo() || isPurchase()
       );
@@ -1591,7 +1594,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isPurchase() || isStores() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(poId) && isValidPurchaseOrder(incoming(), poId) && (
         isSuperAdmin() || isCeo() || isPurchase()
       );
@@ -1614,7 +1617,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isQuality() || isSales()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(logId) && isValidMachineLog(incoming(), logId) && (
         isSuperAdmin() || isCeo() || isStores()
       );
@@ -1632,7 +1635,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isQuality()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(logId) && isValidFurnaceLog(incoming(), logId) && (
         isSuperAdmin() || isCeo() || isStores() || isQuality()
       );
@@ -1650,7 +1653,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isQuality()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(ticketId) && isValidMaintenanceTicket(incoming(), ticketId) && (
         isSuperAdmin() || isCeo() || isStores()
       );
@@ -1668,7 +1671,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isStores() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(logId) && isValidPowerLog(incoming(), logId) && (
         isSuperAdmin() || isCeo() || isStores()
       );
@@ -1686,7 +1689,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isQuality() || isSales() || isStores() || isDispatch()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(reportId) && isValidDimensionalReport(incoming(), reportId) && (
         isSuperAdmin() || isCeo() || isQuality()
       );
@@ -1705,7 +1708,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(costSheetId) && isValidJobCostSheet(incoming(), costSheetId) && (
         isSuperAdmin() || isCeo() || isFinance()
       );
@@ -1722,7 +1725,7 @@ service cloud.firestore {
     // Collection 23: /tasks/{taskId} (Central Task, Duty & Supervisor Verification Engine)
     match /tasks/{taskId} {
       allow get: if isActiveUser() && isValidId(taskId);
-      allow list: if isActiveUser() && existing().id is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(taskId) && isValidTaskRecord(incoming(), taskId);
       allow update: if isActiveUser() && isValidId(taskId) && isValidTaskRecord(incoming(), taskId) &&
         incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
@@ -1738,7 +1741,7 @@ service cloud.firestore {
     // Collection 24: /handovers/{handoverId} (Inter-Department H-1..H-5 Dual-Custody Handover Ledger)
     match /handovers/{handoverId} {
       allow get: if isActiveUser() && isValidId(handoverId);
-      allow list: if isActiveUser() && existing().id is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(handoverId) && isValidHandoverRecord(incoming(), handoverId);
       allow update: if isActiveUser() && isValidId(handoverId) && isValidHandoverRecord(incoming(), handoverId) &&
         incoming().id == existing().id && incoming().orderId == existing().orderId && (
@@ -1758,7 +1761,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isPurchase() || isStores() || isSales() || isFinance()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(requisitionId) && isValidPurchaseRequisition(incoming(), requisitionId) && (
         isSuperAdmin() || isCeo() || isPurchase() || isStores()
       );
@@ -1776,7 +1779,7 @@ service cloud.firestore {
     // Collection 26: /ncrCapaRecords/{ncrId} (Non-Conformance & CAPA Register)
     match /ncrCapaRecords/{ncrId} {
       allow get: if isActiveUser() && isValidId(ncrId);
-      allow list: if isActiveUser() && existing().id is string;
+      allow list: if isActiveUser();
       allow create: if isActiveUser() && isValidId(ncrId) && isValidNcrCapaRecord(incoming(), ncrId) && (
         isSuperAdmin() || isCeo() || isQuality() || isStores()
       );
@@ -1795,7 +1798,7 @@ service cloud.firestore {
       );
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isFinance() || isSales()
-      ) && existing().id is string;
+      );
       allow create: if isActiveUser() && isValidId(followUpId) && isValidPaymentFollowUp(incoming(), followUpId) && (
         isSuperAdmin() || isCeo() || isFinance() || isSales()
       );

@@ -1,10 +1,11 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, Auth, connectAuthEmulator, signInWithCredential } from 'firebase/auth';
 import {
   getFirestore,
   Firestore,
   doc,
   getDocFromServer,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
 import appletConfig from '../../firebase-applet-config.json';
 
@@ -100,6 +101,26 @@ function initFirestoreInstance(
 }
 
 export const firestore: Firestore = initFirestoreInstance(app, firestoreDatabaseId);
+
+/**
+ * Local development only: `VITE_FIREBASE_EMULATORS=true npm run dev` talks to the
+ * Firebase emulators (`firebase emulators:start --only auth,firestore`) instead of the
+ * live project. Vite replaces the flag at build time, so production builds drop this.
+ */
+export const usingFirebaseEmulators = (import.meta as any).env?.VITE_FIREBASE_EMULATORS === 'true';
+if (usingFirebaseEmulators) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(firestore, '127.0.0.1', 8080);
+  // The auth emulator accepts an unsigned Google identity, so a seeded user can sign in
+  // without the Google popup (used by local UI checks).
+  if (typeof window !== 'undefined') {
+    (window as any).__montexEmulatorSignIn = (email: string) =>
+      signInWithCredential(
+        auth,
+        GoogleAuthProvider.credential(JSON.stringify({ sub: email, email, email_verified: true }))
+      );
+  }
+}
 export const db: Firestore = firestore;
 
 export const FIREBASE_CONFIG_METADATA = {

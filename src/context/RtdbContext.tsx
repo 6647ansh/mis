@@ -75,6 +75,7 @@ import {
   computeLiveDashboardKpis,
   computeLiveProductionSummary,
   cutoverEngine,
+  ProductionFirestoreSnapshot,
 } from '../services/firestoreCutoverService';
 
 /**
@@ -893,11 +894,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [buildResolvedUserProfile, clearProductionCollections]);
 
-  const refreshFirestoreSnapshot = useCallback(async () => {
-    if (!firebaseUser || currentUser.accountStatus !== 'active') {
-      return;
-    }
-    const snap = await cutoverEngine.loadProductionSnapshot(currentUser);
+  // Puts a production snapshot (one-time read or live listener) into state.
+  const applyProductionSnapshot = useCallback(async (snap: ProductionFirestoreSnapshot) => {
     const role = currentUser.role;
     const unresolvedWarnings = new Set<string>(snap.warnings);
 
@@ -1099,7 +1097,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setIsRtdbConnected(true);
     setDataSource('live_rtdb');
-    setLastSyncedAt(new Date().toLocaleTimeString());
+    setLastSyncedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
     // Suppress warnings for newly added collections if live Firestore rules have not been deployed yet
     for (const w of Array.from(unresolvedWarnings)) {
@@ -1121,32 +1119,41 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setRtdbError(null);
     }
-  }, [firebaseUser, currentUser]);
+  }, [currentUser.role]);
 
-  // Load authorized data from Cloud Firestore
+  const refreshFirestoreSnapshot = useCallback(async () => {
+    if (!firebaseUser || currentUser.accountStatus !== 'active') {
+      return;
+    }
+    await applyProductionSnapshot(await cutoverEngine.loadProductionSnapshot(currentUser));
+  }, [firebaseUser, currentUser, applyProductionSnapshot]);
+
+  // Live data: one Firestore listener per collection the role may read. Re-subscribes
+  // only when the signed-in employee, their role or their status changes.
+  const liveUserKey = firebaseUser
+    ? `${firebaseUser.uid}|${currentUser.role}|${currentUser.accountStatus}`
+    : '';
+  const applySnapshotRef = React.useRef(applyProductionSnapshot);
+  applySnapshotRef.current = applyProductionSnapshot;
+  const currentUserRef = React.useRef(currentUser);
+  currentUserRef.current = currentUser;
+
   useEffect(() => {
     if (!firebaseUser) {
       setDataSource('fallback_seed');
       return;
     }
-
-    if (currentUser.accountStatus !== 'active') {
+    if (currentUserRef.current.accountStatus !== 'active') {
       clearProductionCollections();
-      setDataSource('live_rtdb');
-      setRtdbError(
-        `Account status is "${currentUser.accountStatus}". Only active employee accounts with an assigned RBAC role can access protected production collections.`
-      );
       return;
     }
-
     setDataSource('live_rtdb');
-    refreshFirestoreSnapshot();
-  }, [
-    firebaseUser,
-    currentUser,
-    clearProductionCollections,
-    refreshFirestoreSnapshot,
-  ]);
+    const unsubscribe = cutoverEngine.subscribeProductionSnapshot(currentUserRef.current, (snap) => {
+      applySnapshotRef.current(snap);
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveUserKey, clearProductionCollections]);
 
   // Keep live KPIs synchronized when production records change in state
   useEffect(() => {

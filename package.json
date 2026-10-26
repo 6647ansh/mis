@@ -15,6 +15,8 @@
     "verify:phase5": "tsx scripts/verify-phase5-cutover.ts",
     "migrate:rtdb": "tsx scripts/migrate-rtdb-to-firestore.ts",
     "migrate:order-values": "tsx scripts/split-order-commercials.ts",
+    "seed:emulator": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 tsx scripts/seed-emulator.ts",
+    "dev:emulator": "VITE_FIREBASE_EMULATORS=true tsx server.ts",
     "test:rules": "firebase emulators:exec --only firestore --project montex-mis-rules-test \"tsx scripts/test-firestore-rules.ts\""
   },
   "dependencies": {
