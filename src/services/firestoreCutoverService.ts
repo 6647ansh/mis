@@ -181,6 +181,8 @@ export interface CutoverWriteResult<T = void> {
   persistedToRtdb: boolean;
   code: string;
   error?: string;
+  /** Set when the main record saved but a follow-up write did not. */
+  warning?: string;
   data?: T;
 }
 
@@ -2121,6 +2123,33 @@ export class MontexCutoverEngine {
       };
     }
 
+    // Both clearances are mandatory before dispatch (Montex). The rules enforce this;
+    // checking here gives the dispatcher a clear reason instead of a permission error.
+    const order = updatedOrder;
+    if (!order) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'ORDER_REQUIRED',
+        error: 'Choose the sales order this consignment belongs to.',
+      };
+    }
+    const missing = [
+      !order.qualityClearedBy && 'quality clearance',
+      !order.financeClearedBy && 'finance clearance',
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'CLEARANCE_REQUIRED',
+        error: `Order ${order.jobNumber || order.id} can't be dispatched yet: it still needs ${missing.join(' and ')}.`,
+      };
+    }
+    dispatchRecord = { ...dispatchRecord, salesOrderId: order.id };
+
     const lockKey = `dispatch:create:${dispatchRecord.id}`;
     if (!this.acquireLock(lockKey)) {
       return {
@@ -2143,7 +2172,18 @@ export class MontexCutoverEngine {
         };
       }
 
-      const dspDoc = mapDispatchToFirestoreDoc(dispatchRecord, 'production');
+      let dspDoc: ReturnType<typeof mapDispatchToFirestoreDoc>;
+      try {
+        dspDoc = mapDispatchToFirestoreDoc(dispatchRecord, 'production');
+      } catch (err: any) {
+        return {
+          success: false,
+          persistedToFirestore: false,
+          persistedToRtdb: false,
+          code: 'VALIDATION_FAILED',
+          error: err?.message || 'The consignment is missing required details.',
+        };
+      }
       const dspRes = await this.fs.createDocument('dispatches', dispatchRecord.id, dspDoc, {
         auditAction: 'DISPATCH_CONSIGNMENT_RECORDED',
         auditDetails: `Recorded dispatch ${dispatchRecord.id} for ${dispatchRecord.jobNumber} (${dispatchRecord.quantity} PCS, LR ${dispatchRecord.lrNumber})`,
@@ -2159,21 +2199,25 @@ export class MontexCutoverEngine {
       }
 
       let savedOrder: OrderJourney | undefined = updatedOrder;
-      if (updatedOrder) {
-        const ordDoc = mapSalesOrderToFirestoreDoc(updatedOrder, 'production');
-        const ordRes = await this.fs.setDocument('salesOrders', updatedOrder.id, ordDoc, {
-          merge: false,
-        });
-        if (ordRes.success && ordRes.data) {
-          savedOrder = mapFirestoreDocToSalesOrder(ordRes.data);
-        }
+      let warning: string | undefined;
+      const ordDoc = mapSalesOrderToFirestoreDoc(updatedOrder, 'production');
+      const ordRes = await this.fs.setDocument('salesOrders', updatedOrder.id, ordDoc, {
+        merge: false,
+      });
+      if (ordRes.success && ordRes.data) {
+        savedOrder = mapFirestoreDocToSalesOrder(ordRes.data);
+      } else {
+        // Never report full success when only half the change was saved.
+        savedOrder = undefined;
+        warning = `Consignment ${dispatchRecord.id} is saved, but order ${updatedOrder.jobNumber || updatedOrder.id} was not updated. Refresh, then update the order's dispatch status.`;
       }
 
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: warning ? 'PARTIAL_WRITE' : 'OK',
+        warning,
         data: {
           dispatch: mapFirestoreDocToDispatch(dspRes.data),
           updatedOrder: savedOrder,
@@ -2182,6 +2226,57 @@ export class MontexCutoverEngine {
     } finally {
       this.releaseLock(lockKey);
     }
+  }
+
+  /**
+   * Gives or withdraws an order's quality or finance clearance. Dispatch needs both.
+   * Rules limit quality clearance to Quality/CEO/Super Admin and finance clearance to
+   * Finance/CEO/Super Admin, and require the clearance to name the caller.
+   */
+  async setOrderClearance(
+    order: OrderJourney,
+    kind: 'quality' | 'finance',
+    cleared: boolean,
+    user: UserProfile
+  ): Promise<CutoverWriteResult<OrderJourney>> {
+    const authCheck = this.verifyRoleWrite(
+      user,
+      'salesOrders',
+      kind === 'quality' ? ['super_admin', 'ceo', 'quality'] : ['super_admin', 'ceo', 'finance'],
+      `${cleared ? 'give' : 'withdraw'} ${kind} clearance`
+    );
+    if (!authCheck.allowed) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: authCheck.code,
+        error: authCheck.error,
+      };
+    }
+    const nowIso = new Date().toISOString();
+    const updates = {
+      [`${kind}ClearedBy`]: cleared ? user.uid || user.id : null,
+      [`${kind}ClearedAt`]: cleared ? nowIso : null,
+      updatedAt: nowIso,
+    };
+    const res = await this.fs.updateDocument('salesOrders', order.id, updates);
+    if (!res.success) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: res.code,
+        error: res.message,
+      };
+    }
+    return {
+      success: true,
+      persistedToFirestore: true,
+      persistedToRtdb: false,
+      code: 'OK',
+      data: { ...order, ...updates } as OrderJourney,
+    };
   }
 
   async recordCustomerPayment(

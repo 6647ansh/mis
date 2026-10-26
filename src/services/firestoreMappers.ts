@@ -1077,6 +1077,10 @@ export function mapSalesOrderToFirestoreDoc(
     documentChecklistStatus: o.documentChecklistStatus as any,
     creditHoldOverrideBy: o.creditHoldOverrideBy ? o.creditHoldOverrideBy.slice(0, 120) : undefined,
     creditHoldOverrideReason: o.creditHoldOverrideReason ? o.creditHoldOverrideReason.slice(0, 400) : undefined,
+    qualityClearedBy: o.qualityClearedBy ?? undefined,
+    qualityClearedAt: o.qualityClearedAt ?? undefined,
+    financeClearedBy: o.financeClearedBy ?? undefined,
+    financeClearedAt: o.financeClearedAt ?? undefined,
     createdAt: o.poDate && o.poDate.length >= 4 ? o.poDate : nowIso,
     updatedAt: nowIso,
     dataOrigin,
@@ -1126,6 +1130,10 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
     documentChecklistStatus: doc.documentChecklistStatus,
     creditHoldOverrideBy: doc.creditHoldOverrideBy,
     creditHoldOverrideReason: doc.creditHoldOverrideReason,
+    qualityClearedBy: doc.qualityClearedBy ?? null,
+    qualityClearedAt: doc.qualityClearedAt ?? null,
+    financeClearedBy: doc.financeClearedBy ?? null,
+    financeClearedAt: doc.financeClearedAt ?? null,
     lineItems: stageMeta.lineItem
       ? [stageMeta.lineItem]
       : [
@@ -1445,19 +1453,33 @@ export function mapDispatchToFirestoreDoc(
     delivered: 'Delivered',
   };
 
+  // Consignment records are shipping evidence: never invent a vehicle, LR, weight or order.
+  const orderRef = optionalText(d.jobNumber || d.orderNo, 128);
+  if (!orderRef) throw new RecordValidationError('Choose the order this consignment belongs to.');
+  if (!(d.weightMt > 0)) throw new RecordValidationError('Enter the consignment weight in tonnes.');
+  const customerName = optionalText(d.customer, 160);
+  if (!customerName || customerName.length < 2) throw new RecordValidationError('The order has no customer name.');
+  const status = statusMap[d.status];
+  if (!status) throw new RecordValidationError(`"${d.status}" is not a recognised dispatch status.`);
+
+  const optional = {
+    salesOrderId: optionalText(d.salesOrderId, 128),
+    productName: optionalText(d.product, 160),
+    transporterName: optionalText(d.transporter, 120),
+    vehicleNo: optionalText(d.vehicleNo, 40),
+    lrNo: optionalText(d.lrNumber, 64),
+    invoiceNo: optionalText(d.invoiceRef, 64),
+    destination: optionalText(d.destination, 160),
+  };
+
   return {
     id: d.id,
-    orderId: (d.jobNumber || d.orderNo || 'ORD-2026-001').slice(0, 128),
-    customerName: (d.customer || 'Montex Customer').slice(0, 160),
-    productName: (d.product || 'Forged Component').slice(0, 160),
-    quantityTons: Math.max(0.01, d.weightMt || 0.5),
+    orderId: orderRef,
+    customerName,
+    quantityTons: d.weightMt,
     dispatchDate: (d.date || nowIso.split('T')[0]).slice(0, 40),
-    transporterName: (d.transporter || 'Assigned Transporter').slice(0, 120),
-    vehicleNo: (d.vehicleNo || 'MH-12-XX-0000').slice(0, 40),
-    lrNo: (d.lrNumber || `LR-${d.id}`).slice(0, 64),
-    invoiceNo: (d.invoiceRef || '-').slice(0, 64),
-    destination: (d.destination || 'Customer Works').slice(0, 160),
-    status: statusMap[d.status] || 'In Transit',
+    status,
+    ...(Object.fromEntries(Object.entries(optional).filter(([, v]) => v)) as Partial<FirestoreDispatchDoc>),
     createdBy: packMeta(
       'Dispatch Desk',
       {
@@ -1495,20 +1517,21 @@ export function mapFirestoreDocToDispatch(
     id: doc.id,
     orderNo: meta.po || doc.orderId,
     jobNumber: meta.job || doc.orderId,
+    salesOrderId: doc.salesOrderId,
     customer: doc.customerName,
-    product: doc.productName || 'Forged Component',
-    quantity:
-      meta.qty !== undefined ? Number(meta.qty) : Math.max(1, Math.round(doc.quantityTons * 35)),
+    product: doc.productName || '',
+    // Piece count is only known if it was recorded; never estimate it from weight.
+    quantity: meta.qty !== undefined ? Number(meta.qty) : 0,
     balanceQty: meta.bal !== undefined ? Number(meta.bal) : 0,
     weightMt: doc.quantityTons,
-    transporter: doc.transporterName || 'Assigned Transporter',
-    vehicleNo: doc.vehicleNo || 'MH-12-XX-0000',
-    lrNumber: doc.lrNo || `LR-${doc.id}`,
-    destination: doc.destination || 'Customer Works',
+    transporter: doc.transporterName || '',
+    vehicleNo: doc.vehicleNo || '',
+    lrNumber: doc.lrNo || '',
+    destination: doc.destination || '',
     date: doc.dispatchDate,
-    invoiceRef: doc.invoiceNo || '-',
-    clearanceRef: meta.clr || '-',
-    status: meta.st || reverseStatus[doc.status] || 'dispatched',
+    invoiceRef: doc.invoiceNo || '',
+    clearanceRef: meta.clr || '',
+    status: meta.st || reverseStatus[doc.status],
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

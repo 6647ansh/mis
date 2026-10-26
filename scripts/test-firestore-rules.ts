@@ -63,6 +63,37 @@ function inspection(id: string, inspected: number, passed: number, rejected: num
   });
 }
 
+function salesOrder(orderId: string): Record<string, any> {
+  return {
+    orderId,
+    customerName: 'Test Customer',
+    productName: 'Flange',
+    steelGrade: 'A105',
+    quantityMT: 10,
+    totalValueINR: 500000,
+    orderDate: '2026-10-01',
+    committedDeliveryDate: '2026-11-15',
+    currentStage: 'Ready for Dispatch',
+    overallStatus: 'On Track',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+}
+
+function consignment(id: string, salesOrderId: string): Record<string, any> {
+  return {
+    id,
+    orderId: 'JOB-TEST-1',
+    salesOrderId,
+    customerName: 'Test Customer',
+    quantityTons: 2,
+    dispatchDate: '2026-10-26',
+    status: 'Scheduled',
+    createdAt: '2026-10-26T00:00:00.000Z',
+    updatedAt: '2026-10-26T00:00:00.000Z',
+  };
+}
+
 const results: { name: string; ok: boolean; detail?: string }[] = [];
 async function check(name: string, fn: () => Promise<unknown>) {
   try {
@@ -91,7 +122,9 @@ async function main() {
     await setDoc(doc(db, 'users/pending3'), profile('pending3', 'quality', 'pending_approval'));
     await setDoc(doc(db, 'users/rejected1'), profile('rejected1', 'sales', 'rejected'));
     await setDoc(doc(db, 'users/deact1'), profile('deact1', 'sales', 'deactivated'));
-    await setDoc(doc(db, 'salesOrders/ORD-1'), { orderId: 'ORD-1' });
+    await setDoc(doc(db, 'salesOrders/ORD-1'), salesOrder('ORD-1'));
+    await setDoc(doc(db, 'salesOrders/ORD-2'), salesOrder('ORD-2'));
+    await setDoc(doc(db, 'users/finance1'), profile('finance1', 'finance', 'active'));
     await setDoc(doc(db, 'systemConfig/dashboardKpis'), {
       configId: 'dashboardKpis',
       configType: 'dashboardKpis',
@@ -237,6 +270,42 @@ async function main() {
   );
   await check('Sales cannot record a quality inspection', () =>
     assertFails(setDoc(doc(as('sales1'), 'qualityInspections/QC-3'), inspection('QC-3', 10, 10, 0)))
+  );
+
+  // --- Dispatch clearances (both mandatory, confirmed by Montex) ---------
+  const clear = (kind: 'quality' | 'finance', uid: string) => ({
+    [`${kind}ClearedBy`]: uid,
+    [`${kind}ClearedAt`]: '2026-10-26T10:00:00.000Z',
+    updatedAt: '2026-10-26T10:00:00.000Z',
+  });
+  await check('Dispatch cannot be created for an order without clearances', () =>
+    assertFails(setDoc(doc(as('dispatch1'), 'dispatches/DSP-1'), consignment('DSP-1', 'ORD-1')))
+  );
+  await check('Sales cannot give quality clearance', () =>
+    assertFails(updateDoc(doc(as('sales1'), 'salesOrders/ORD-1'), clear('quality', 'sales1')))
+  );
+  await check('Quality cannot give finance clearance', () =>
+    assertFails(updateDoc(doc(as('quality1'), 'salesOrders/ORD-1'), clear('finance', 'quality1')))
+  );
+  await check('Quality cannot sign a clearance in someone else\'s name', () =>
+    assertFails(updateDoc(doc(as('quality1'), 'salesOrders/ORD-1'), clear('quality', 'ceo1')))
+  );
+  await check('Quality gives quality clearance', () =>
+    assertSucceeds(updateDoc(doc(as('quality1'), 'salesOrders/ORD-1'), clear('quality', 'quality1')))
+  );
+  await check('Dispatch still blocked with quality clearance only', () =>
+    assertFails(setDoc(doc(as('dispatch1'), 'dispatches/DSP-2'), consignment('DSP-2', 'ORD-1')))
+  );
+  await check('Finance gives finance clearance', () =>
+    assertSucceeds(updateDoc(doc(as('finance1'), 'salesOrders/ORD-1'), clear('finance', 'finance1')))
+  );
+  await check('Dispatch allowed once both clearances are given', () =>
+    assertSucceeds(setDoc(doc(as('dispatch1'), 'dispatches/DSP-3'), consignment('DSP-3', 'ORD-1')))
+  );
+  await check('Dispatch without a linked sales order is refused', () =>
+    assertFails(
+      setDoc(doc(as('dispatch1'), 'dispatches/DSP-4'), (({ salesOrderId, ...rest }) => rest)(consignment('DSP-4', 'ORD-2')))
+    )
   );
 
   await env.cleanup();

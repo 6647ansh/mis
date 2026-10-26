@@ -188,6 +188,12 @@ interface RtdbContextType {
   }>;
   loginWithGoogle: () => Promise<{ success: boolean; error?: string; code?: string; cancelled?: boolean }>;
   logoutUser: () => Promise<void>;
+  /** Gives or withdraws an order's quality or finance clearance (both needed to dispatch). */
+  setOrderClearance: (
+    orderId: string,
+    kind: 'quality' | 'finance',
+    cleared: boolean
+  ) => Promise<{ success: boolean; error?: string }>;
 
   // Connection & Cutover State
   isRtdbConnected: boolean;
@@ -2631,6 +2637,21 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
+  const setOrderClearance = async (
+    orderId: string,
+    kind: 'quality' | 'finance',
+    cleared: boolean
+  ) => {
+    const order = salesOrders.find((o) => o.id === orderId);
+    if (!order) return { success: false, error: 'This order is no longer available. Refresh the page.' };
+    const res = await cutoverEngine.setOrderClearance(order, kind, cleared, currentUser);
+    if (res.success && res.data) {
+      const saved = res.data;
+      setSalesOrders((prev) => prev.map((o) => (o.id === orderId ? saved : o)));
+    }
+    return { success: res.success, error: res.error };
+  };
+
   const loginWithGoogle = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -2663,6 +2684,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         approveEmployeeAccount,
         rejectEmployeeAccount,
         loginWithGoogle,
+        setOrderClearance,
         logoutUser,
         isRtdbConnected,
         isDemoMode,

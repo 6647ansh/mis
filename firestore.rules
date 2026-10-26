@@ -342,6 +342,7 @@ service cloud.firestore {
         'mtcStatus', 'dispatchStatus', 'invoiceNo', 'paymentStatus', 'stages',
         'fprUid', 'fprName', 'fprDepartment', 'handoverStage', 'documentChecklistStatus',
         'creditHoldOverrideBy', 'creditHoldOverrideReason',
+        'qualityClearedBy', 'qualityClearedAt', 'financeClearedBy', 'financeClearedAt',
         'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
       ]) &&
       data.orderId is string && data.orderId == orderId && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
@@ -375,6 +376,10 @@ service cloud.firestore {
       (!('documentChecklistStatus' in data) || (data.documentChecklistStatus is string && data.documentChecklistStatus in ['Incomplete', 'Ready', 'Verified'])) &&
       (!('creditHoldOverrideBy' in data) || (data.creditHoldOverrideBy is string && data.creditHoldOverrideBy.size() <= 120)) &&
       (!('creditHoldOverrideReason' in data) || (data.creditHoldOverrideReason is string && data.creditHoldOverrideReason.size() <= 400)) &&
+      optNullableStr(data, 'qualityClearedBy', 128) &&
+      optNullableStr(data, 'qualityClearedAt', 40) &&
+      optNullableStr(data, 'financeClearedBy', 128) &&
+      optNullableStr(data, 'financeClearedAt', 40) &&
       (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128)) &&
       data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
       data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
@@ -389,10 +394,11 @@ service cloud.firestore {
       data.keys().hasOnly([
         'id', 'orderId', 'customerName', 'productName', 'quantityTons', 'dispatchDate',
         'transporterName', 'vehicleNo', 'lrNo', 'invoiceNo', 'destination', 'status',
-        'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
+        'createdBy', 'createdAt', 'updatedAt', 'dataOrigin', 'salesOrderId'
       ]) &&
       data.id is string && data.id == dispatchId && data.id.size() >= 1 && data.id.size() <= 128 &&
       isValidId(data.orderId) &&
+      (!('salesOrderId' in data) || isValidId(data.salesOrderId)) &&
       data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
       (!('productName' in data) || (data.productName is string && data.productName.size() <= 160)) &&
       data.quantityTons is number && data.quantityTons > 0 &&
@@ -1271,34 +1277,64 @@ service cloud.firestore {
     }
 
     // Collection 5: /salesOrders/{orderId}
+    // kind is 'quality' or 'finance'. Unchanged clearance: always fine. Changed: the caller
+    // may give it (hasKindRole: matching role, CEO or Super Admin) and a set clearance names the caller.
+    function clearanceChangeAllowed(kind, hasKindRole) {
+      let byKey = kind + 'ClearedBy';
+      let atKey = kind + 'ClearedAt';
+      let d = request.resource.data;
+      let e = resource.data;
+      return (d.get(byKey, null) == e.get(byKey, null) && d.get(atKey, null) == e.get(atKey, null)) ||
+        (hasKindRole && d.get(byKey, null) in [null, request.auth.uid]);
+    }
+
+    function isClearedForDispatch(salesOrderId) {
+      let order = get(/databases/$(database)/documents/salesOrders/$(salesOrderId)).data;
+      return order.get('qualityClearedBy', null) != null && order.get('financeClearedBy', null) != null;
+    }
+
+    // Who may change what on a sales order. The caller's profile is read once (the
+    // separate isX() checks exceeded Firestore's 1000-expression limit).
+    function salesOrderUpdateAllowed(me) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let lead = profileIsActiveRole(me, 'super_admin') || profileIsActiveRole(me, 'ceo');
+      return clearanceChangeAllowed('quality', lead || profileIsActiveRole(me, 'quality')) &&
+        clearanceChangeAllowed('finance', lead || profileIsActiveRole(me, 'finance')) && (
+        lead ||
+        profileIsActiveRole(me, 'sales') ||
+        // Stores: manufacturing stage, heat number and delay only
+        (profileIsActiveRole(me, 'stores') && changed.hasOnly([
+          'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo', 'stages', 'updatedAt'
+        ])) ||
+        // Quality: quality stage, MTC and quality clearance only
+        (profileIsActiveRole(me, 'quality') && changed.hasOnly([
+          'currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt',
+          'qualityClearedBy', 'qualityClearedAt'
+        ])) ||
+        // Dispatch: dispatch stage and status only
+        (profileIsActiveRole(me, 'dispatch') && changed.hasOnly([
+          'currentStage', 'overallStatus', 'dispatchStatus', 'stages', 'updatedAt'
+        ])) ||
+        // Finance: invoicing, payment status and finance clearance only
+        (profileIsActiveRole(me, 'finance') && changed.hasOnly([
+          'currentStage', 'overallStatus', 'invoiceNo', 'paymentStatus', 'stages', 'updatedAt',
+          'financeClearedBy', 'financeClearedAt'
+        ]))
+      );
+    }
+
     match /salesOrders/{orderId} {
       allow get: if isActiveUser() && isValidId(orderId);
       allow list: if isActiveUser() && existing().orderId is string;
       allow create: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) && (
         isSuperAdmin() || isCeo() || isSales()
       );
+      // Dispatch needs both clearances (confirmed by Montex). Only Quality (or CEO /
+      // Super Admin) may give or withdraw the quality clearance, only Finance (or CEO /
+      // Super Admin) the finance clearance, and a clearance must name the caller.
       allow update: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) &&
-        incoming().orderId == existing().orderId && incoming().createdAt == existing().createdAt && (
-        isSuperAdmin() ||
-        isCeo() ||
-        isSales() ||
-        // Stores action: manufacturing stage, heatNo, and delay updates only
-        (isStores() && incoming().diff(existing()).affectedKeys().hasOnly([
-          'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo', 'stages', 'updatedAt'
-        ])) ||
-        // Quality action: quality stage & MTC updates only
-        (isQuality() && incoming().diff(existing()).affectedKeys().hasOnly([
-          'currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt'
-        ])) ||
-        // Dispatch action: dispatch stage & status updates only
-        (isDispatch() && incoming().diff(existing()).affectedKeys().hasOnly([
-          'currentStage', 'overallStatus', 'dispatchStatus', 'stages', 'updatedAt'
-        ])) ||
-        // Finance action: invoicing & payment status updates only
-        (isFinance() && incoming().diff(existing()).affectedKeys().hasOnly([
-          'currentStage', 'overallStatus', 'invoiceNo', 'paymentStatus', 'stages', 'updatedAt'
-        ]))
-      );
+        incoming().orderId == existing().orderId && incoming().createdAt == existing().createdAt &&
+        (isBootstrapOwner() || salesOrderUpdateAllowed(currentUserDoc()));
       allow delete: if isActiveUser() && isValidId(orderId) && (isSuperAdmin() || isCeo());
     }
 
@@ -1310,7 +1346,9 @@ service cloud.firestore {
       allow list: if isActiveUser() && (
         isSuperAdmin() || isCeo() || isSales() || isDispatch() || isFinance() || isStores()
       ) && existing().id is string;
-      allow create: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) && (
+      // A consignment can only be created for an order with quality and finance clearance.
+      allow create: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) &&
+        'salesOrderId' in incoming() && isClearedForDispatch(incoming().salesOrderId) && (
         isSuperAdmin() || isCeo() || isDispatch()
       );
       allow update: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) &&

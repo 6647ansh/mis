@@ -930,6 +930,11 @@ async function runPhase5Verification(): Promise<void> {
 
     const updatedOrderForDispatch: OrderJourney = {
       ...existingOrder,
+      // Dispatch needs quality and finance clearance (Montex rule).
+      qualityClearedBy: USERS.quality?.uid || 'uid-quality',
+      qualityClearedAt: '2026-03-28T10:00:00.000Z',
+      financeClearedBy: USERS.finance?.uid || 'uid-finance',
+      financeClearedAt: '2026-03-28T11:00:00.000Z',
       status: 'partially_dispatched',
       dispatchStatus: {
         ...existingOrder.dispatchStatus,

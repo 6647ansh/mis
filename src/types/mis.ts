@@ -313,6 +313,11 @@ export interface OrderJourney {
     | 'Ready'
     | 'Verified';
   creditHoldOverrideBy?: string;
+  /** Dispatch needs both clearances: UID of the Quality / Finance approver and when. */
+  qualityClearedBy?: string | null;
+  qualityClearedAt?: string | null;
+  financeClearedBy?: string | null;
+  financeClearedAt?: string | null;
   creditHoldOverrideReason?: string;
   dataOrigin?: DataRecordOrigin;
 }
@@ -413,6 +418,7 @@ export interface DispatchConsignmentRecord {
   date: string; // YYYY-MM-DD
   orderNo: string; // Foreign key -> OrderJourney.poNumber
   jobNumber: string; // Foreign key -> OrderJourney.jobNumber
+  salesOrderId?: string; // Firestore id of the sales order (rules check its clearances)
   customer: string;
   product: string;
   quantity: number; // Non-negative shipped PCS

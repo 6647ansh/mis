@@ -163,6 +163,10 @@ export interface FirestoreSalesOrderDoc {
   handoverStage?: 'H-1' | 'H-2' | 'H-3' | 'H-4' | 'H-5';
   documentChecklistStatus?: 'Incomplete' | 'Ready' | 'Verified';
   creditHoldOverrideBy?: string;
+  qualityClearedBy?: string | null;
+  qualityClearedAt?: string | null;
+  financeClearedBy?: string | null;
+  financeClearedAt?: string | null;
   creditHoldOverrideReason?: string;
   createdBy?: string;
   createdAt: string;
@@ -237,6 +241,7 @@ export interface FirestorePurchaseOrderDoc {
 export interface FirestoreDispatchDoc {
   id: string;
   orderId: string;
+  salesOrderId?: string;
   customerName: string;
   productName?: string;
   quantityTons: number;
