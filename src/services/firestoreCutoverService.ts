@@ -2048,7 +2048,18 @@ export class MontexCutoverEngine {
         };
       }
 
-      const docPayload = mapQualityInspectionToFirestoreDoc(inspection, 'production');
+      let docPayload: ReturnType<typeof mapQualityInspectionToFirestoreDoc>;
+      try {
+        docPayload = mapQualityInspectionToFirestoreDoc(inspection, 'production');
+      } catch (err: any) {
+        return {
+          success: false,
+          persistedToFirestore: false,
+          persistedToRtdb: false,
+          code: 'VALIDATION_FAILED',
+          error: err?.message || 'The inspection is missing required details.',
+        };
+      }
       const res = await this.fs.createDocument('qualityInspections', inspection.id, docPayload, {
         auditAction: 'QUALITY_INSPECTION_RECORDED',
         auditDetails: `Recorded QC inspection ${inspection.id} for ${inspection.jobNumber} (${inspection.passedQty}/${inspection.inspectedQty} passed)`,

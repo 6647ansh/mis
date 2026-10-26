@@ -49,6 +49,8 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 | S8 | Any active user may create/update `systemConfig/dashboardKpis` (the CEO's KPI numbers). The monthly sales target is now locked to CEO/Super Admin; the other KPI fields should be computed from data rather than written by users (open). | High | `firestore.rules` `/systemConfig` |
 | S9 | False "saved" messages: the monthly sales target was written only to RTDB but reported as saved to Firestore; employee role changes reported success even when the Firestore write failed. **Fixed.** | Medium | `updateMonthlySalesTarget`, `AdminView` role change |
 | S10 | A deactivated employee kept a working UI until reload because the profile-listener error was ignored. **Fixed:** the session locks immediately. | Medium | `RtdbContext.tsx` own-profile `onSnapshot` |
+| S12 | **Rules too heavy to evaluate.** The `/users` rules exceeded Firestore's 1000-expression limit on the paths for a new employee's access request and for a CEO approving someone, so Firestore refused them with "Missing or insufficient permissions". New Google users therefore never reached the approval queue. **Fixed** by evaluating own-profile and staff paths separately, reading the caller's profile once, and checking core invariants on updates; proven on the emulator with zero limit hits. | High | `firestore.rules` `/users` |
+| D1 | **Invented quality data.** The inspection mapper filled blanks with made-up traceability values (heat no. `HEAT-VERIFIED`, `MTC-{id}`, grade `ASTM A105`, a fixed job number, result `Approved`) and raised inspected 0 to 1. **Fixed:** blanks stay blank, a missing job number or unknown result is refused. Other mappers still contain such defaults (to review module by module). | High | `firestoreMappers.ts` |
 | S11 | Inviting an employee without the server created an active profile with an invented UID (`uid-emp-XXXX`) that can never match a Google sign-in. **Removed:** inviting now needs the server; otherwise the employee signs in once and is approved from the queue. | Medium | `AdminView` invite |
 
 ### 3.2 Blueprint known bugs — root causes
@@ -76,8 +78,9 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 2. ✅ **Firestore only** — RTDB reads, writes and merging removed from the app;
    `database.rules.json` now denies everything; `npm run migrate:rtdb` copies old
    RTDB records into Firestore (dry run by default). (S2, S3, S7, rejection bugs)
-3. **Rules** — quality quantity invariant; per-role read scopes once confirmed;
-   rule tests on the Firestore emulator.
+3. ✅ **Rules** — quality invariant (passed + rejected ≤ inspected) in rules;
+   `/users` rules brought under the expression limit; `npm run test:rules` runs
+   24 cases on the real Firestore emulator. Per-role read scopes wait on S5.
 4. **Design system and cover page** — navy + bronze tokens, shared components,
    ⌘K command palette, premium Google sign-in page with the official logo.
 5. **Live data and performance** — per-module `onSnapshot`, lazy-loaded modules

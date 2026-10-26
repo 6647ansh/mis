@@ -1339,6 +1339,16 @@ export function mapFirestoreDocToStockMovement(doc: FirestoreStockMovementDoc): 
   };
 }
 
+/** Thrown when a record is missing data that must come from the user, never a default. */
+export class RecordValidationError extends Error {
+  readonly code = 'VALIDATION_FAILED';
+}
+
+const optionalText = (value: string | undefined, max: number) => {
+  const clean = String(value ?? '').trim();
+  return clean ? clean.slice(0, max) : undefined;
+};
+
 export function mapQualityInspectionToFirestoreDoc(
   q: QualityInspectionRecord,
   dataOrigin: DataRecordOrigin = 'production'
@@ -1351,25 +1361,41 @@ export function mapQualityInspectionToFirestoreDoc(
     rejected: 'Rejected',
   };
 
-  return {
+  // Quality records are traceability evidence: never invent a job, heat, grade,
+  // MTC number, inspector or result. Missing optional fields stay empty.
+  const jobNumber = optionalText(q.jobNumber, 128);
+  if (!jobNumber) {
+    throw new RecordValidationError('Enter the job number this inspection belongs to.');
+  }
+  const status = statusMap[q.status];
+  if (!status) {
+    throw new RecordValidationError(`"${q.status}" is not a recognised inspection result.`);
+  }
+
+  const doc: FirestoreQualityInspectionDoc = {
     id: q.id,
-    batchId: packMeta(q.jobNumber, { cust: q.customer, st: q.status }, 80),
-    orderId: (q.jobNumber || 'JOB-MF-2026-0412').slice(0, 128),
-    productName: (q.product || 'Forged Component').slice(0, 160),
-    steelGrade: (q.grade || 'ASTM A105').slice(0, 64),
-    heatNo: (q.heatNo || 'HEAT-VERIFIED').slice(0, 64),
-    inspectedQtyMT: Math.max(1, q.inspectedQty),
-    acceptedQtyMT: Math.max(0, q.passedQty),
-    rejectedQtyMT: Math.max(0, q.rejectedQty),
-    ndtStatus: q.status === 'rejected' ? 'Failed' : q.status === 'cleared' ? 'Passed' : 'Pending',
-    mtcNumber: (q.mtcNumber || `MTC-${q.id}`).slice(0, 80),
-    inspectorName: (q.inspector || 'QC Inspector').slice(0, 120),
+    batchId: packMeta(jobNumber, { cust: q.customer, st: q.status }, 80),
+    orderId: jobNumber,
+    inspectedQtyMT: q.inspectedQty,
+    acceptedQtyMT: q.passedQty,
+    rejectedQtyMT: q.rejectedQty,
     inspectionDate: (q.date || nowIso.split('T')[0]).slice(0, 40),
-    status: statusMap[q.status] || 'Approved',
+    status,
     createdAt: nowIso,
     updatedAt: nowIso,
     dataOrigin,
   };
+  const productName = optionalText(q.product, 160);
+  const steelGrade = optionalText(q.grade, 64);
+  const heatNo = optionalText(q.heatNo, 64);
+  const mtcNumber = optionalText(q.mtcNumber, 80);
+  const inspectorName = optionalText(q.inspector, 120);
+  if (productName) doc.productName = productName;
+  if (steelGrade) doc.steelGrade = steelGrade;
+  if (heatNo) doc.heatNo = heatNo;
+  if (mtcNumber) doc.mtcNumber = mtcNumber;
+  if (inspectorName) doc.inspectorName = inspectorName;
+  return doc;
 }
 
 export function mapFirestoreDocToQualityInspection(
@@ -1386,20 +1412,21 @@ export function mapFirestoreDocToQualityInspection(
     Rejected: 'rejected',
   };
 
+  // Show exactly what was recorded; blanks stay blank.
   return {
     id: doc.id,
     jobNumber: doc.orderId || jobNo,
-    customer: meta.cust || 'Montex Customer',
-    product: doc.productName || 'Forged Component',
-    grade: doc.steelGrade || 'ASTM A105',
-    heatNo: doc.heatNo || 'HEAT-VERIFIED',
+    customer: meta.cust || '',
+    product: doc.productName || '',
+    grade: doc.steelGrade || '',
+    heatNo: doc.heatNo || '',
     inspectedQty: doc.inspectedQtyMT,
     passedQty: doc.acceptedQtyMT,
     rejectedQty: doc.rejectedQtyMT,
-    status: meta.st || reverseStatus[doc.status] || 'cleared',
-    inspector: doc.inspectorName || 'QC Inspector',
+    status: meta.st || reverseStatus[doc.status],
+    inspector: doc.inspectorName || '',
     date: doc.inspectionDate,
-    mtcNumber: doc.mtcNumber || '-',
+    mtcNumber: doc.mtcNumber || '',
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

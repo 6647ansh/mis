@@ -60,11 +60,15 @@ service cloud.firestore {
     }
 
     // Granular 8-role resolution from authoritative /users/{uid} document
+    // Reads the caller's profile once per check; repeated reads pushed the users
+    // rules past Firestore's 1000-expression limit.
     function hasRole(targetRole) {
-      return isSignedIn() && userProfileExists() && currentUserDoc().accountStatus == 'active' && (
-        currentUserDoc().role == targetRole ||
-        ('legacyRole' in currentUserDoc() && currentUserDoc().legacyRole == targetRole)
-      );
+      return isSignedIn() && userProfileExists() && profileHasRole(currentUserDoc(), targetRole);
+    }
+
+    function profileHasRole(profileDoc, targetRole) {
+      return profileDoc.accountStatus == 'active' &&
+        (profileDoc.role == targetRole || profileDoc.get('legacyRole', '') == targetRole);
     }
 
     function isSuperAdmin() {
@@ -124,6 +128,47 @@ service cloud.firestore {
     // =========================================================================
 
     // 2.1 UserProfile (/users/{userId})
+    // Optional string field that may also be null.
+    function optNullableStr(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    // Core profile invariants checked on every update. Field lengths are enforced on
+    // create (isValidUserProfile); re-checking all ~45 fields on each update pushed
+    // the users rules past Firestore's 1000-expression limit.
+    function isValidUserProfileUpdate(userId) {
+      let d = request.resource.data;
+      let e = resource.data;
+      return d.uid == userId && d.uid == e.uid &&
+        d.email == e.email &&
+        d.createdAt == e.createdAt &&
+        d.keys().hasOnly([
+          'id', 'uid', 'name', 'email', 'displayName', 'role', 'requestedRole', 'requestedDepartment',
+          'legacyRole', 'rbacGroup', 'roleTitle', 'department', 'designation', 'avatarInitials', 'accountStatus', 'status',
+          'mustChangePassword', 'invitedBy', 'provisionedBy', 'provisionedAt',
+          'approvedByUid', 'approvedByEmail', 'approvedByName', 'approvedAt',
+          'rejectedByUid', 'rejectedByEmail', 'rejectedByName', 'rejectedAt', 'rejectionReason', 'approvalHistory',
+          'permissions', 'isDepartmentHead', 'managedDepartment', 'reportingManagerUid',
+          'createdAt', 'updatedAt', 'lastLogin', 'lastLoginAt',
+          'disabledAt', 'deactivatedBy', 'deactivationReason', 'dataOrigin'
+        ]) &&
+        isValidRoleValue(d.role) &&
+        d.get('legacyRole', d.role) in [d.role, 'sales', 'stores', 'purchase', 'quality', 'dispatch', 'finance'] &&
+        (d.get('legacyRole', '') != 'ceo' || d.role in ['ceo', 'super_admin']) &&
+        d.get('rbacGroup', 'Sales') in ['Admin', 'Management', 'Sales', 'Production', 'Finance'] &&
+        (d.get('rbacGroup', '') != 'Admin' || d.role == 'super_admin') &&
+        (d.get('rbacGroup', '') != 'Management' || d.role in ['ceo', 'super_admin']) &&
+        d.accountStatus in [
+          'active', 'deactivated', 'inactive', 'suspended', 'rejected', 'pending_invitation', 'pending_approval', 'pending_setup'
+        ] &&
+        d.displayName is string && d.displayName.size() >= 2 && d.displayName.size() <= 120 &&
+        d.department is string && d.department.size() >= 2 && d.department.size() <= 80 &&
+        d.updatedAt is string && d.updatedAt.size() >= 4 && d.updatedAt.size() <= 40 &&
+        optNullableStr(d, 'rejectionReason', 500) &&
+        (d.get('permissions', []) is map || (d.get('permissions', []) is list && d.get('permissions', []).size() <= 20)) &&
+        (d.get('approvalHistory', []) is list && d.get('approvalHistory', []).size() <= 50);
+    }
+
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll([
         'uid', 'email', 'displayName', 'role', 'department', 'accountStatus', 'createdAt', 'updatedAt'
@@ -437,6 +482,8 @@ service cloud.firestore {
       data.inspectedQtyMT is number && data.inspectedQtyMT > 0 &&
       data.acceptedQtyMT is number && data.acceptedQtyMT >= 0 &&
       data.rejectedQtyMT is number && data.rejectedQtyMT >= 0 &&
+      // Blueprint: never store an impossible lot (e.g. 500 inspected, 500 passed, 8 rejected).
+      data.acceptedQtyMT + data.rejectedQtyMT <= data.inspectedQtyMT &&
       (!('reworkQtyMT' in data) || (data.reworkQtyMT is number && data.reworkQtyMT >= 0)) &&
       (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 300)) &&
       (!('ndtStatus' in data) || (data.ndtStatus is string && data.ndtStatus in ['Passed', 'Failed', 'Pending'])) &&
@@ -1034,6 +1081,62 @@ service cloud.firestore {
     // =========================================================================
 
     // Collection 1: /users/{userId}
+    // ---- Employee governance writes by another person -------------------------
+    // The caller's profile is passed in once (one get()) instead of calling
+    // isSuperAdmin()/isCeo() separately; that kept these rules under
+    // Firestore's 1000-expression limit.
+    function profileIsActiveRole(me, role) {
+      return me.accountStatus == 'active' && (me.role == role || me.get('legacyRole', '') == role);
+    }
+
+    function adminCreatesUser() {
+      let d = request.resource.data;
+      return d.get('approvedByUid', null) in [null, request.auth.uid] &&
+        d.get('rejectedByUid', null) in [null, request.auth.uid];
+    }
+
+    function ceoCreatesUser() {
+      let d = request.resource.data;
+      return !(d.role in ['super_admin', 'ceo']) &&
+        !(d.get('legacyRole', '') in ['super_admin', 'ceo']) &&
+        !(d.get('requestedRole', '') in ['super_admin', 'ceo']) &&
+        !(d.get('rbacGroup', '') in ['Admin', 'Management']) &&
+        d.get('approvedByUid', null) in [null, request.auth.uid] &&
+        d.get('rejectedByUid', null) in [null, request.auth.uid];
+    }
+
+    function staffCreatesUser(me) {
+      return (profileIsActiveRole(me, 'super_admin') && adminCreatesUser()) ||
+        (profileIsActiveRole(me, 'ceo') && ceoCreatesUser());
+    }
+
+    // An approver/rejecter field may stay as it was, be cleared, or be set to the caller.
+    function adminUpdatesUser() {
+      let d = request.resource.data;
+      let e = resource.data;
+      return d.get('approvedByUid', null) in [null, e.get('approvedByUid', null), request.auth.uid] &&
+        d.get('rejectedByUid', null) in [null, e.get('rejectedByUid', null), request.auth.uid];
+    }
+
+    function ceoUpdatesUser() {
+      let d = request.resource.data;
+      let e = resource.data;
+      return !(e.role in ['super_admin', 'ceo']) &&
+        !(e.get('legacyRole', '') in ['super_admin', 'ceo']) &&
+        !(e.get('rbacGroup', '') in ['Admin', 'Management']) &&
+        !(d.role in ['super_admin', 'ceo']) &&
+        !(d.get('legacyRole', '') in ['super_admin', 'ceo']) &&
+        !(d.get('requestedRole', '') in ['super_admin', 'ceo']) &&
+        !(d.get('rbacGroup', '') in ['Admin', 'Management']) &&
+        d.get('approvedByUid', null) in [null, e.get('approvedByUid', null), request.auth.uid] &&
+        d.get('rejectedByUid', null) in [null, e.get('rejectedByUid', null), request.auth.uid];
+    }
+
+    function staffUpdatesUser(me) {
+      return (profileIsActiveRole(me, 'super_admin') && adminUpdatesUser()) ||
+        (profileIsActiveRole(me, 'ceo') && ceoUpdatesUser());
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (
         (isOwner(userId) && (resource == null || existing().accountStatus in ['active', 'pending_approval', 'pending_invitation', 'pending_setup', 'rejected'])) ||
@@ -1041,23 +1144,10 @@ service cloud.firestore {
         isCeo()
       );
       allow list: if isActiveUser() && (isSuperAdmin() || isCeo()) && existing().uid is string;
+      // Own-profile requests are checked first so they never pay for the admin checks
+      // (evaluating every branch exceeded Firestore's 1000-expression limit).
       allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
-        (
-          isSuperAdmin() &&
-          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || incoming().approvedByUid == request.auth.uid) &&
-          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || incoming().rejectedByUid == request.auth.uid)
-        ) ||
-        (
-          isCeo() &&
-          !isOwner(userId) &&
-          incoming().role != 'super_admin' &&
-          incoming().role != 'ceo' &&
-          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
-          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
-          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
-          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || incoming().approvedByUid == request.auth.uid) &&
-          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || incoming().rejectedByUid == request.auth.uid)
-        ) ||
+        (isOwner(userId) && (
         (isOwner(userId) && isBootstrapOwner() && !userProfileExists()) ||
         (
           isOwner(userId) &&
@@ -1075,39 +1165,15 @@ service cloud.firestore {
           (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null) &&
           (!('rejectedAt' in incoming()) || incoming().rejectedAt == null)
         )
+        )) ||
+        (!isOwner(userId) && (
+          (isBootstrapOwner() && adminCreatesUser()) ||
+          (userProfileExists() && staffCreatesUser(currentUserDoc()))
+        ))
       );
-      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
-        (
-          isSuperAdmin() &&
-          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || ('approvedByUid' in existing() && incoming().approvedByUid == existing().approvedByUid) || incoming().approvedByUid == request.auth.uid) &&
-          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || ('rejectedByUid' in existing() && incoming().rejectedByUid == existing().rejectedByUid) || incoming().rejectedByUid == request.auth.uid)
-        ) ||
-        (
-          isCeo() &&
-          !isOwner(userId) &&
-          existing().role != 'super_admin' &&
-          existing().role != 'ceo' &&
-          (!('legacyRole' in existing()) || (existing().legacyRole != 'super_admin' && existing().legacyRole != 'ceo')) &&
-          (!('rbacGroup' in existing()) || (existing().rbacGroup != 'Admin' && existing().rbacGroup != 'Management')) &&
-          incoming().role != 'super_admin' &&
-          incoming().role != 'ceo' &&
-          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
-          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
-          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
-          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || ('approvedByUid' in existing() && incoming().approvedByUid == existing().approvedByUid) || incoming().approvedByUid == request.auth.uid) &&
-          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || ('rejectedByUid' in existing() && incoming().rejectedByUid == existing().rejectedByUid) || incoming().rejectedByUid == request.auth.uid)
-        ) ||
-        (
-          isOwner(userId) &&
-          isActiveUser() &&
-          incoming().uid == existing().uid &&
-          incoming().email == existing().email &&
-          incoming().role == existing().role &&
-          incoming().department == existing().department &&
-          incoming().accountStatus == existing().accountStatus &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['lastLogin', 'lastLoginAt', 'updatedAt', 'displayName', 'name', 'mustChangePassword'])
-        ) ||
+      // Same split as create: own-profile edits never evaluate the CEO branch.
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfileUpdate(userId) && (
+        (isOwner(userId) && (
         (
           isOwner(userId) &&
           existing().accountStatus == 'pending_approval' &&
@@ -1122,7 +1188,28 @@ service cloud.firestore {
           (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
           (!('isDepartmentHead' in incoming()) || incoming().isDepartmentHead == false) &&
           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'name', 'department', 'requestedDepartment', 'role', 'legacyRole', 'requestedRole', 'rbacGroup', 'designation', 'roleTitle', 'avatarInitials', 'approvalHistory', 'updatedAt'])
+        ) ||
+        (
+          isOwner(userId) &&
+          isActiveUser() &&
+          incoming().uid == existing().uid &&
+          incoming().email == existing().email &&
+          incoming().role == existing().role &&
+          incoming().department == existing().department &&
+          incoming().accountStatus == existing().accountStatus &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['lastLogin', 'lastLoginAt', 'updatedAt', 'displayName', 'name', 'mustChangePassword'])
+        ) ||
+        (
+          isSuperAdmin() &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || ('approvedByUid' in existing() && incoming().approvedByUid == existing().approvedByUid) || incoming().approvedByUid == request.auth.uid) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || ('rejectedByUid' in existing() && incoming().rejectedByUid == existing().rejectedByUid) || incoming().rejectedByUid == request.auth.uid)
         )
+        )) ||
+        (!isOwner(userId) && (
+          (isBootstrapOwner() && adminUpdatesUser()) ||
+          (userProfileExists() && staffUpdatesUser(currentUserDoc()))
+        ))
       );
       allow delete: if isSignedIn() && isValidId(userId) && isSuperAdmin() && request.auth.uid != userId;
     }

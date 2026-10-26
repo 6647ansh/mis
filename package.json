@@ -13,7 +13,8 @@
     "verify:phase3": "tsx scripts/verify-phase3-auth-provisioning.ts",
     "verify:phase4": "tsx scripts/verify-phase4-firestore-service.ts",
     "verify:phase5": "tsx scripts/verify-phase5-cutover.ts",
-    "migrate:rtdb": "tsx scripts/migrate-rtdb-to-firestore.ts"
+    "migrate:rtdb": "tsx scripts/migrate-rtdb-to-firestore.ts",
+    "test:rules": "firebase emulators:exec --only firestore --project montex-mis-rules-test \"tsx scripts/test-firestore-rules.ts\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
@@ -41,6 +43,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "eslint": "^10.13.0",
+    "firebase-tools": "^15.34.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
