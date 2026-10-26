@@ -1,65 +1,71 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { Loader2, ShieldAlert } from 'lucide-react';
 import { RtdbProvider, useRtdb } from './context/RtdbContext';
-import { DemoBanner } from './components/common/DemoBanner';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
-import { CeoCommandCenter } from './components/dashboard/CeoCommandCenter';
-import { OrderDetailJourney } from './components/orders/OrderDetailJourney';
-import { BlueprintView } from './components/blueprint/BlueprintView';
-import { QuotationsView } from './components/modules/QuotationsView';
-import { SalesOrdersView } from './components/modules/SalesOrdersView';
-import { ProcurementView } from './components/modules/ProcurementView';
-import { InventoryView } from './components/modules/InventoryView';
-import { ProductionShopFloorView } from './components/modules/ProductionShopFloorView';
-import { QualityView } from './components/modules/QualityView';
-import { DispatchView } from './components/modules/DispatchView';
-import { FinanceView } from './components/modules/FinanceView';
-import { MasterDataView } from './components/modules/MasterDataView';
-import { NotificationsView } from './components/modules/NotificationsView';
-import { ReportsView } from './components/modules/ReportsView';
-import { AdminView } from './components/modules/AdminView';
-import { TaskAccountabilityView } from './components/modules/TaskAccountabilityView';
-import { FirebaseAuthAndDiagnosticsModal } from './components/auth/FirebaseAuthAndDiagnosticsModal';
-import { preloadMontexLogoForPdf } from './utils/pdfBrandingUtility';
+import { SignInPage } from './components/auth/SignInPage';
+import { AccountStatusGate } from './components/auth/AccountStatusGate';
 import { canRoleAccessWorkspaceTab, WORKSPACE_TAB_TO_MODULE, WorkspaceTabId } from './types/roles';
 
+// Each module is fetched only when first opened, so sign-in and the shell stay light.
+const lazyNamed = <K extends string>(
+  loader: () => Promise<Record<K, React.ComponentType<any>>>,
+  name: K
+) => lazy(() => loader().then((m) => ({ default: m[name] })));
+
+const CeoCommandCenter = lazyNamed(() => import('./components/dashboard/CeoCommandCenter'), 'CeoCommandCenter');
+const OrderDetailJourney = lazyNamed(() => import('./components/orders/OrderDetailJourney'), 'OrderDetailJourney');
+const BlueprintView = lazyNamed(() => import('./components/blueprint/BlueprintView'), 'BlueprintView');
+const QuotationsView = lazyNamed(() => import('./components/modules/QuotationsView'), 'QuotationsView');
+const SalesOrdersView = lazyNamed(() => import('./components/modules/SalesOrdersView'), 'SalesOrdersView');
+const ProcurementView = lazyNamed(() => import('./components/modules/ProcurementView'), 'ProcurementView');
+const InventoryView = lazyNamed(() => import('./components/modules/InventoryView'), 'InventoryView');
+const ProductionShopFloorView = lazyNamed(() => import('./components/modules/ProductionShopFloorView'), 'ProductionShopFloorView');
+const QualityView = lazyNamed(() => import('./components/modules/QualityView'), 'QualityView');
+const DispatchView = lazyNamed(() => import('./components/modules/DispatchView'), 'DispatchView');
+const FinanceView = lazyNamed(() => import('./components/modules/FinanceView'), 'FinanceView');
+const MasterDataView = lazyNamed(() => import('./components/modules/MasterDataView'), 'MasterDataView');
+const NotificationsView = lazyNamed(() => import('./components/modules/NotificationsView'), 'NotificationsView');
+const ReportsView = lazyNamed(() => import('./components/modules/ReportsView'), 'ReportsView');
+const AdminView = lazyNamed(() => import('./components/modules/AdminView'), 'AdminView');
+const TaskAccountabilityView = lazyNamed(() => import('./components/modules/TaskAccountabilityView'), 'TaskAccountabilityView');
+
+function FullPageSpinner({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50" role="status">
+      <Loader2 className="h-6 w-6 animate-spin text-slate-400" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+function ModuleFallback() {
+  return (
+    <div className="flex h-64 items-center justify-center" role="status">
+      <Loader2 className="h-5 w-5 animate-spin text-slate-400" aria-hidden="true" />
+      <span className="sr-only">Loading module</span>
+    </div>
+  );
+}
+
 function MontexWorkspace() {
-  const {
-    firebaseUser,
-    currentUser,
-    setPreviewUserRole,
-    logoutUser,
-    refreshOwnUserProfile,
-  } = useRtdb();
+  const { currentUser } = useRtdb();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [selectedOrderId, setSelectedOrderId] = useState<string>('ORD-2026-001');
+  const [selectedOrderId, setSelectedOrderId] = useState<string>('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
-  const [authModalState, setAuthModalState] = useState<{
-    open: boolean;
-    tab: 'auth' | 'diagnostics' | 'rules';
-  }>({ open: false, tab: 'auth' });
-  const [refreshingGateStatus, setRefreshingGateStatus] = useState(false);
-  const [gateFeedback, setGateFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    preloadMontexLogoForPdf();
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab');
     const initialOrder = params.get('orderId');
-    if (initialTab) {
-      setCurrentTab(initialTab);
-    }
-    if (initialOrder) {
-      setSelectedOrderId(initialOrder);
-    }
+    if (initialTab) setCurrentTab(initialTab);
+    if (initialOrder) setSelectedOrderId(initialOrder);
 
     const handlePopState = (event: PopStateEvent) => {
       if (event.state?.tabId) {
         setCurrentTab(event.state.tabId);
-        if (event.state.orderId) {
-          setSelectedOrderId(event.state.orderId);
-        }
+        if (event.state.orderId) setSelectedOrderId(event.state.orderId);
       } else {
         const searchParams = new URLSearchParams(window.location.search);
         setCurrentTab(searchParams.get('tab') || 'dashboard');
@@ -75,9 +81,7 @@ function MontexWorkspace() {
   const handleNavigate = (tabId: string, orderId?: string) => {
     setCurrentTab(tabId);
     const nextOrderId = orderId || selectedOrderId;
-    if (orderId) {
-      setSelectedOrderId(orderId);
-    }
+    if (orderId) setSelectedOrderId(orderId);
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('tab', tabId);
@@ -93,55 +97,26 @@ function MontexWorkspace() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Phase 3 Enforcement: Authenticated Firebase users with non-active accountStatus cannot use protected modules
-  const isAuthenticatedAccountRestricted =
-    Boolean(firebaseUser) && currentUser.accountStatus !== 'active';
+  const openOrder = (orderId: string) => handleNavigate('order_journey', orderId);
 
   const isTabAuthorizedForRole = canRoleAccessWorkspaceTab(
     currentUser.role,
     currentTab,
     currentUser.accountStatus
   );
-
-  const handleRefreshGateStatus = async () => {
-    setRefreshingGateStatus(true);
-    setGateFeedback(null);
-    const res = await refreshOwnUserProfile();
-    if (res.success && res.profile) {
-      if (res.profile.accountStatus !== 'active') {
-        setGateFeedback(
-          `Synced from database at ${new Date().toLocaleTimeString()}: status is "${res.profile.accountStatus.toUpperCase()}".`
-        );
-      }
-    } else {
-      setGateFeedback(res.error || 'Could not refresh status from database.');
-    }
-    setRefreshingGateStatus(false);
-  };
+  const moduleName = WORKSPACE_TAB_TO_MODULE[currentTab as WorkspaceTabId] || 'this module';
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans text-[#1C2736]">
-      {/* Clean Client-Ready Plant Status & Session Bar */}
-      <DemoBanner
-        onOpenBlueprint={() => setCurrentTab('admin')}
-        onOpenFirebaseConsole={(tab: 'auth' | 'diagnostics' | 'rules') =>
-          setAuthModalState({ open: true, tab })
-        }
-        onNavigate={handleNavigate}
-      />
-
-      {/* Top Bar Contract Compliant Header */}
       <Header
         currentTab={currentTab}
         onNavigate={handleNavigate}
         currentUser={currentUser}
-        onSelectUserRole={(u) => setPreviewUserRole(u)}
+        onSelectUserRole={() => {}}
         onOpenMobileMenu={() => setMobileMenuOpen(true)}
       />
 
-      {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Persistent Desktop Sidebar & Mobile Drawer */}
         <Sidebar
           currentTab={currentTab}
           onNavigate={handleNavigate}
@@ -152,157 +127,31 @@ function MontexWorkspace() {
           onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         />
 
-        {/* Content Viewport */}
         <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="max-w-7xl mx-auto">
-            {isAuthenticatedAccountRestricted ? (
-              <div className="bg-white rounded-lg border-2 border-rose-200 shadow-sm p-6 md:p-8 max-w-2xl mx-auto my-8 space-y-4 text-xs">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <div>
-                    <span className="text-[11px] font-mono uppercase tracking-wider text-rose-700 font-bold">
-                      Zero-Trust Access Gate · Account Status Restricted
-                    </span>
-                    <h2 className="text-lg font-bold text-slate-900 mt-0.5">
-                      {currentUser.accountStatus === 'rejected'
-                        ? 'Employee Access Request Rejected — Protected Modules Locked'
-                        : currentUser.accountStatus === 'deactivated'
-                        ? 'Employee Account Deactivated — Protected Modules Locked'
-                        : 'Account Pending Administrator Approval — Protected Modules Locked'}
-                    </h2>
-                  </div>
-                  <span className="px-2.5 py-1 rounded bg-rose-100 text-rose-800 font-mono font-bold uppercase text-[11px]">
-                    {currentUser.accountStatus}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded bg-slate-50 border border-slate-200 font-mono text-[11px]">
-                  <div>
-                    <span className="text-slate-500 block">Authenticated Email:</span>
-                    <strong className="text-slate-900">
-                      {firebaseUser?.email || currentUser.email}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block">Canonical Firebase UID:</span>
-                    <strong className="text-slate-900">
-                      {firebaseUser?.uid || currentUser.id}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block">Active Authorization Role:</span>
-                    <strong className="text-rose-700">
-                      NONE (Zero Business Data Permissions)
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block">Requested Role &amp; Department:</span>
-                    <strong className="text-amber-800">
-                      {(currentUser.requestedRole || currentUser.role || 'sales').toUpperCase()} ·{' '}
-                      {currentUser.requestedDepartment || currentUser.department || 'Sales'}
-                    </strong>
-                  </div>
-                </div>
-
-                {currentUser.accountStatus === 'rejected' && (
-                  <div className="p-3.5 rounded bg-rose-50 border border-rose-200 text-rose-900 space-y-1">
-                    <div className="font-bold">
-                      Rejection Reason: {currentUser.rejectionReason || 'Not specified'}
-                    </div>
-                    <div className="text-[11px] font-mono text-rose-700">
-                      Reviewed by: {currentUser.rejectedByEmail || currentUser.rejectedByName || 'Administrator'}{' '}
-                      {currentUser.rejectedAt ? `at ${currentUser.rejectedAt}` : ''}
-                    </div>
-                  </div>
-                )}
-
-                <p className="text-slate-600 leading-relaxed">
-                  Your employee profile in <code>/users/&#123;uid&#125;</code> currently has status{' '}
-                  <code className="font-mono font-bold text-rose-700">
-                    {currentUser.accountStatus}
-                  </code>
-                  . Pending and rejected accounts cannot read or write protected Montex Forge MIS
-                  business data. An authorized <strong>Super Admin</strong> (or{' '}
-                  <strong>CEO</strong>) can review and approve your request in{' '}
-                  <strong>Admin → Employee Approval Queue</strong>.
+            {!isTabAuthorizedForRole ? (
+              <div className="mx-auto my-12 max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-bronze-200 bg-bronze-50 text-bronze-600">
+                  <ShieldAlert className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <h2 className="mt-5 text-xl font-bold tracking-tight text-slate-900">
+                  {moduleName} is not part of your role
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Your account can't open {moduleName}. If you need it for your work, ask the
+                  system administrator to review your role.
                 </p>
-
-                {gateFeedback && (
-                  <div className="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-900 font-medium">
-                    {gateFeedback}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <button
-                    onClick={() => setAuthModalState({ open: true, tab: 'auth' })}
-                    className="px-4 py-2 bg-[#14283F] text-white rounded font-semibold hover:bg-slate-800 cursor-pointer"
-                  >
-                    {currentUser.accountStatus === 'rejected'
-                      ? 'Update & Resubmit Access Request'
-                      : 'Edit Access Request / Open Auth Console'}
-                  </button>
-                  <button
-                    onClick={handleRefreshGateStatus}
-                    disabled={refreshingGateStatus}
-                    className="px-4 py-2 bg-white border border-slate-300 text-slate-800 rounded font-semibold hover:bg-slate-100 cursor-pointer"
-                  >
-                    {refreshingGateStatus ? 'Checking Database...' : 'Refresh Approval Status'}
-                  </button>
-                  <button
-                    onClick={() => logoutUser()}
-                    className="px-4 py-2 bg-rose-600 text-white rounded font-semibold hover:bg-rose-700 cursor-pointer"
-                  >
-                    Sign Out of Restricted Account
-                  </button>
-                </div>
-              </div>
-            ) : !isTabAuthorizedForRole ? (
-              <div className="bg-white rounded-lg border-2 border-amber-300 shadow-sm p-6 md:p-8 max-w-2xl mx-auto my-8 space-y-4 text-xs">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <div>
-                    <span className="text-[11px] font-mono uppercase tracking-wider text-amber-800 font-bold">
-                      RBAC Department Boundary · Unauthorized Module Route
-                    </span>
-                    <h2 className="text-lg font-bold text-slate-900 mt-0.5">
-                      Module Access Restricted for Role &ldquo;{currentUser.role}&rdquo;
-                    </h2>
-                  </div>
-                  <span className="px-2.5 py-1 rounded bg-amber-100 text-amber-900 font-mono font-bold uppercase text-[11px]">
-                    {WORKSPACE_TAB_TO_MODULE[currentTab as WorkspaceTabId] || currentTab}
-                  </span>
-                </div>
-
-                <p className="text-slate-600 leading-relaxed">
-                  Active profile <strong className="text-slate-900">{currentUser.name}</strong> (
-                  <code className="font-mono font-semibold">{currentUser.role}</code> ·{' '}
-                  {currentUser.department}) does not have view authorization for the{' '}
-                  <strong className="text-slate-900">
-                    {WORKSPACE_TAB_TO_MODULE[currentTab as WorkspaceTabId] || currentTab}
-                  </strong>{' '}
-                  module under the Montex Forge Industries RBAC permission matrix.
-                </p>
-
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <button
-                    onClick={() => handleNavigate('dashboard')}
-                    className="px-4 py-2 bg-[#14283F] text-white rounded font-semibold hover:bg-slate-800 cursor-pointer"
-                  >
-                    Return to Command Center Dashboard
-                  </button>
-                  <button
-                    onClick={() => handleNavigate('tasks_accountability')}
-                    className="px-4 py-2 bg-slate-100 text-slate-800 border border-slate-300 rounded font-semibold hover:bg-slate-200 cursor-pointer"
-                  >
-                    Open Tasks, Handovers &amp; SOP Hub
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('dashboard')}
+                  className="mt-6 inline-flex h-11 cursor-pointer items-center justify-center rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bronze-500 focus-visible:ring-offset-2"
+                >
+                  Go to dashboard
+                </button>
               </div>
             ) : (
-              <>
-                {currentTab === 'dashboard' && (
-                  <CeoCommandCenter onNavigate={handleNavigate} />
-                )}
-
+              <Suspense fallback={<ModuleFallback />}>
+                {currentTab === 'dashboard' && <CeoCommandCenter onNavigate={handleNavigate} />}
 
                 {currentTab === 'order_journey' && (
                   <OrderDetailJourney
@@ -312,33 +161,14 @@ function MontexWorkspace() {
                 )}
 
                 {currentTab === 'tasks_accountability' && (
-                  <TaskAccountabilityView
-                    onSelectOrder={(orderId) => {
-                      setSelectedOrderId(orderId);
-                      setCurrentTab('order_journey');
-                    }}
-                  />
+                  <TaskAccountabilityView onSelectOrder={openOrder} />
                 )}
 
                 {currentTab === 'blueprint' && <BlueprintView />}
 
-                {currentTab === 'quotations' && (
-                  <QuotationsView
-                    onSelectOrder={(orderId) => {
-                      setSelectedOrderId(orderId);
-                      setCurrentTab('order_journey');
-                    }}
-                  />
-                )}
+                {currentTab === 'quotations' && <QuotationsView onSelectOrder={openOrder} />}
 
-                {currentTab === 'sales_orders' && (
-                  <SalesOrdersView
-                    onSelectOrder={(id) => {
-                      setSelectedOrderId(id);
-                      setCurrentTab('order_journey');
-                    }}
-                  />
-                )}
+                {currentTab === 'sales_orders' && <SalesOrdersView onSelectOrder={openOrder} />}
 
                 {currentTab === 'purchase' && <ProcurementView />}
 
@@ -352,49 +182,43 @@ function MontexWorkspace() {
 
                 {currentTab === 'finance' && <FinanceView />}
 
-                {currentTab === 'customers' && (
-                  <MasterDataView initialType="customers" />
-                )}
+                {currentTab === 'customers' && <MasterDataView initialType="customers" />}
 
-                {currentTab === 'products' && (
-                  <MasterDataView initialType="products" />
-                )}
+                {currentTab === 'products' && <MasterDataView initialType="products" />}
 
                 {currentTab === 'reports' && <ReportsView />}
 
-                {currentTab === 'notifications' && (
-                  <NotificationsView onNavigate={handleNavigate} />
-                )}
+                {currentTab === 'notifications' && <NotificationsView onNavigate={handleNavigate} />}
 
                 {currentTab === 'admin' && (
-                  <AdminView
-                    currentUser={currentUser}
-                    onSelectUserRole={(u) => setPreviewUserRole(u)}
-                    onOpenFirebaseConsole={(tab) =>
-                      setAuthModalState({ open: true, tab })
-                    }
-                  />
+                  <AdminView currentUser={currentUser} onSelectUserRole={() => {}} />
                 )}
-              </>
+              </Suspense>
             )}
           </div>
         </main>
       </div>
-
-      {/* Firebase Authentication, Seeding, Security Rules & Diagnostic Suite Modal */}
-      <FirebaseAuthAndDiagnosticsModal
-        isOpen={authModalState.open}
-        initialTab={authModalState.tab}
-        onClose={() => setAuthModalState((prev) => ({ ...prev, open: false }))}
-      />
     </div>
   );
+}
+
+/**
+ * Entry gate. Nothing protected renders until Firebase has resolved the session:
+ * signed out → sign-in page; signed in but not approved → status page; active → workspace.
+ */
+function AppGate() {
+  const { authLoading, firebaseUser, currentUser } = useRtdb();
+
+  if (authLoading) return <FullPageSpinner label="Checking your session" />;
+  if (!firebaseUser) return <SignInPage />;
+  if (currentUser.accountStatus !== 'active') return <AccountStatusGate />;
+  return <MontexWorkspace />;
 }
 
 export default function App() {
   return (
     <RtdbProvider>
-      <MontexWorkspace />
+      <AppGate />
     </RtdbProvider>
   );
 }

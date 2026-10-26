@@ -2,11 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import {
   User,
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  sendPasswordResetEmail,
   updateProfile,
 } from 'firebase/auth';
 import { ref, onValue, set, get, remove, Unsubscribe } from 'firebase/database';
@@ -188,19 +185,6 @@ interface RtdbContextType {
   setActiveRbacGroup: (group: RbacRoleGroup) => void;
 
   // Auth actions
-  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  registerOrBootstrapUser: (
-    name: string,
-    email: string,
-    pass: string,
-    requestedDepartment: string,
-    requestedRole?: UserRole
-  ) => Promise<{
-    success: boolean;
-    error?: string;
-    provisionedRole?: string;
-    provisionedStatus?: string;
-  }>;
   submitOrUpdateOwnAccessRequest: (input: {
     displayName: string;
     department: string;
@@ -244,9 +228,8 @@ interface RtdbContextType {
     persistedToFirestore?: boolean;
     persistedToRtdb?: boolean;
   }>;
-  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string; code?: string; cancelled?: boolean }>;
   logoutUser: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
 
   // Connection & Cutover State
   isRtdbConnected: boolean;
@@ -469,15 +452,47 @@ interface RtdbContextType {
   }>;
 }
 
+/**
+ * Placeholder profile while nobody is signed in. It is never active and carries
+ * no permissions, so no protected module can render or read data for it.
+ */
+const SIGNED_OUT_PROFILE: UserProfile = {
+  ...PROTOTYPE_USERS[0],
+  id: '',
+  uid: '',
+  name: '',
+  displayName: '',
+  email: '',
+  avatarInitials: '',
+  accountStatus: 'pending_approval',
+  permissions: [],
+  approvalHistory: [],
+};
+
+/** Maps Firebase Auth error codes to messages an employee can act on. */
+function describeGoogleSignInError(code: string | undefined): string {
+  switch (code) {
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the Google sign-in window. Allow pop-ups for this site, then try again.';
+    case 'auth/network-request-failed':
+      return 'Could not reach Google. Check your internet connection, then try again.';
+    case 'auth/unauthorized-domain':
+      return 'Sign-in is not enabled for this web address yet. Ask your system administrator to add it in Firebase Authentication settings.';
+    case 'auth/user-disabled':
+      return 'This Google account has been disabled for Montex MIS. Contact your system administrator.';
+    case 'auth/too-many-requests':
+      return 'Too many sign-in attempts. Wait a minute, then try again.';
+    default:
+      return 'Google sign-in did not complete. Please try again, or contact your system administrator if it keeps failing.';
+  }
+}
+
 const RtdbContext = createContext<RtdbContextType | undefined>(undefined);
 
 export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
-  const [currentUser, setCurrentUser] = useState<UserProfile>({
-    ...PROTOTYPE_USERS[0],
-    rbacGroup: 'Admin',
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile>(SIGNED_OUT_PROFILE);
 
   const [isRtdbConnected, setIsRtdbConnected] = useState<boolean>(false);
   const [dataSource, setDataSource] = useState<'live_rtdb' | 'fallback_seed'>('fallback_seed');
@@ -586,40 +601,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPaymentFollowUps([]);
     setPreRfqLeads([]);
     setPpcSchedules([]);
-  }, []);
-
-  const restoreDemoSandboxCollections = useCallback(() => {
-    setDashboardKpis(DEFAULT_DASHBOARD_KPIS);
-    setProductionSummary(DEFAULT_PRODUCTION_SUMMARY);
-    setAlertThresholds(DEFAULT_ALERT_THRESHOLDS);
-    setSalesOrders(MOCK_ORDER_JOURNEYS);
-    setDispatches(INITIAL_DISPATCHES);
-    setQualityInspections(INITIAL_QUALITY_INSPECTIONS);
-    setRawMaterials(MOCK_RAW_MATERIALS.map(normalizeRawMaterialWithComputedStatus));
-    setStockMovements(MOCK_STOCK_MOVEMENTS);
-    setActionQueue(MOCK_ACTION_QUEUE);
-    setOutstandingAgeing(MOCK_OUTSTANDING_AGEING);
-    setCustomers(MOCK_CUSTOMERS);
-    setProducts(MOCK_PRODUCTS);
-    setSuppliers(INITIAL_STEEL_MILLS);
-    setJobCostSheets(INITIAL_JOB_COST_SHEETS);
-    setUsersList(PROTOTYPE_USERS);
-    setAuditLogs(MOCK_AUDIT_LOGS);
-    setQuotations(INITIAL_QUOTATIONS);
-    setTenders(INITIAL_TENDERS);
-    setPurchaseOrders(INITIAL_PURCHASE_ORDERS);
-    setMachineLogs(INITIAL_SHOP_MACHINE_LOGS);
-    setFurnaceLogs(INITIAL_FURNACE_LOGS);
-    setMaintenanceTickets(INITIAL_MAINTENANCE_TICKETS);
-    setPowerLogs(INITIAL_POWER_LOGS);
-    setDimensionalReports(INITIAL_DIMENSIONAL_REPORTS);
-    setTasks(INITIAL_TASKS);
-    setHandovers(INITIAL_HANDOVERS);
-    setPurchaseRequisitions(INITIAL_PURCHASE_REQUISITIONS);
-    setNcrCapaRecords(INITIAL_NCR_CAPA_RECORDS);
-    setPaymentFollowUps(INITIAL_PAYMENT_FOLLOW_UPS);
-    setPreRfqLeads(INITIAL_PRE_RFQ_LEADS);
-    setPpcSchedules(INITIAL_PPC_SCHEDULES);
   }, []);
 
   const setPreviewUserRole = (user: UserProfile) => {
@@ -742,13 +723,13 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubOwnFirestoreProfile = null;
       }
 
+      // Hold the UI on the loading screen until this user's profile is resolved,
+      // so a signed-in employee never sees the "pending" page flash first.
+      setAuthLoading(true);
       setFirebaseUser(user);
       if (!user) {
-        setCurrentUser({
-          ...PROTOTYPE_USERS[0],
-          rbacGroup: 'Admin',
-        });
-        restoreDemoSandboxCollections();
+        setCurrentUser(SIGNED_OUT_PROFILE);
+        clearProductionCollections();
         setDataSource('fallback_seed');
         setRtdbError(null);
         setAuthLoading(false);
@@ -1058,7 +1039,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (unsubOwnFirestoreProfile) unsubOwnFirestoreProfile();
       unsubAuth();
     };
-  }, [buildResolvedUserProfile, clearProductionCollections, restoreDemoSandboxCollections]);
+  }, [buildResolvedUserProfile, clearProductionCollections]);
 
   const refreshFirestoreSnapshot = useCallback(async () => {
     if (!firebaseUser || currentUser.accountStatus !== 'active') {
@@ -2332,133 +2313,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // AUTHENTICATION HANDLERS
   // ==========================================================================
 
-  const loginWithEmail = async (email: string, pass: string) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Failed to sign in' };
-    }
-  };
-
-  const registerOrBootstrapUser = async (
-    name: string,
-    email: string,
-    pass: string,
-    requestedDepartment: string,
-    requestedRole: UserRole = 'sales'
-  ) => {
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
-      await updateProfile(cred.user, { displayName: name });
-
-      const safeRequestedRole: UserRole =
-        isCanonicalUserRole(requestedRole) &&
-        requestedRole !== 'super_admin' &&
-        requestedRole !== 'ceo'
-          ? requestedRole
-          : 'sales';
-      const assignedRole = 'Unassigned';
-      const assignedStatus: UserProfile['accountStatus'] = 'pending_approval';
-      const nowIso = new Date().toISOString();
-
-      const initials = name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2) || 'MU';
-
-      const historyEntry: ApprovalHistoryEntry = {
-        status: 'pending_approval',
-        actorUid: cred.user.uid,
-        actorEmail: email.trim().toLowerCase(),
-        actorName: name.trim(),
-        timestamp: nowIso,
-        roleAssigned: safeRequestedRole,
-        departmentAssigned: requestedDepartment,
-        notes: `Self-service registration submitted for ${requestedDepartment} (${safeRequestedRole}).`,
-      };
-
-      const newProfile: UserProfile = {
-        id: cred.user.uid,
-        uid: cred.user.uid,
-        name: name.trim(),
-        displayName: name.trim(),
-        email: email.trim().toLowerCase(),
-        role: safeRequestedRole,
-        requestedRole: safeRequestedRole,
-        requestedDepartment,
-        rbacGroup: mapRoleToRbacGroup(safeRequestedRole),
-        roleTitle: `Pending Admin Approval (Requested: ${safeRequestedRole.toUpperCase()} — ${requestedDepartment})`,
-        designation: `Requested: ${safeRequestedRole.toUpperCase()}`,
-        department: requestedDepartment,
-        avatarInitials: initials,
-        accountStatus: assignedStatus,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        lastLoginAt: nowIso,
-        approvalHistory: [historyEntry],
-        permissions: [],
-        dataOrigin: 'production',
-      };
-
-      // 1. Try server-side access-request endpoint
-      const apiSavedRes = await submitAccessRequestViaApi({
-        displayName: name.trim(),
-        department: requestedDepartment,
-        requestedRole: safeRequestedRole,
-        designation: `Requested: ${safeRequestedRole}`,
-      }).catch(() => null);
-      const apiSaved = Boolean(apiSavedRes?.success);
-
-      // 2. Persist to Cloud Firestore /users/{uid}
-      let fsSaved = false;
-      if (isFirestoreConfigured) {
-        const fsRes = await firestoreService
-          .upsertSelfPendingAccessRequestToFirestore(mapUserProfileToFirestoreDoc(newProfile))
-          .catch(() => null);
-        fsSaved = Boolean(fsRes?.success);
-      }
-
-      // 3. Persist to RTDB /users/{uid}
-      let rtdbSaved = false;
-      try {
-        await set(ref(rtdb, `users/${cred.user.uid}`), {
-          ...newProfile,
-          role: assignedRole,
-          legacyRole: safeRequestedRole,
-        });
-        rtdbSaved = true;
-      } catch {
-        // Ignore if RTDB rules block direct profile creation
-      }
-
-      setCurrentUser(newProfile);
-      setUsersList((prev) =>
-        prev.some((u) => u.id === newProfile.id)
-          ? prev.map((u) => (u.id === newProfile.id ? newProfile : u))
-          : [newProfile, ...prev]
-      );
-
-      if (!isDemoMode && !apiSaved && !fsSaved && !rtdbSaved) {
-        return {
-          success: false,
-          error:
-            'Account was created in Firebase Authentication, but the initial access request could not be persisted to Firestore or Realtime Database. Please sign in and retry submitting your request.',
-        };
-      }
-
-      return {
-        success: true,
-        provisionedRole: assignedRole,
-        provisionedStatus: assignedStatus,
-      };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Registration failed' };
-    }
-  };
-
   const submitOrUpdateOwnAccessRequest = async (input: {
     displayName: string;
     department: string;
@@ -3237,24 +3091,17 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signInWithPopup(auth, googleProvider);
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err?.message || 'Google Sign-In failed' };
+      const code: string | undefined = err?.code;
+      // Closing the Google window is a choice, not an error.
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return { success: false, cancelled: true };
+      }
+      return { success: false, error: describeGoogleSignInError(code), code };
     }
   };
 
   const logoutUser = async () => {
     await signOut(auth);
-  };
-
-  const resetPassword = async (email: string) => {
-    try {
-      await sendPasswordResetEmail(auth, email);
-      return { success: true };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err?.message || 'Failed to send password reset email',
-      };
-    }
   };
 
   const seedDatabase = async () => {
@@ -3276,15 +3123,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeRbacGroup,
         setPreviewUserRole,
         setActiveRbacGroup,
-        loginWithEmail,
-        registerOrBootstrapUser,
         submitOrUpdateOwnAccessRequest,
         refreshOwnUserProfile,
         approveEmployeeAccount,
         rejectEmployeeAccount,
         loginWithGoogle,
         logoutUser,
-        resetPassword,
         isRtdbConnected,
         isDemoMode,
         dataBackend,

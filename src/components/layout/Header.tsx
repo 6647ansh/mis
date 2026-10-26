@@ -8,6 +8,7 @@ import {
   FileDown,
   CheckCircle2,
   Loader2,
+  LogOut,
 } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
 import { MontexLogo } from '../common/MontexLogo';
@@ -113,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onOpenMobileMenu,
 }) => {
-  const { activeRbacGroup, setActiveRbacGroup, firebaseUser, actionQueue } = useRtdb();
+  const { activeRbacGroup, actionQueue, logoutUser } = useRtdb();
   const [pdfDownloadState, setPdfDownloadState] = useState<
     'idle' | 'downloading' | 'success' | 'error'
   >('idle');
@@ -283,31 +284,6 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        {/* Role Switcher (Preview Mode) */}
-        {!firebaseUser && (
-          <div className="relative">
-            <label htmlFor="role-select" className="sr-only">
-              Access Role View
-            </label>
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-[#F4F6F9] hover:bg-slate-200/70 rounded-md border border-slate-200 transition-colors">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#F28C28] shrink-0" />
-              <span className="text-slate-500 hidden md:inline">Role:</span>
-              <select
-                id="role-select"
-                value={activeRbacGroup}
-                onChange={(e) => setActiveRbacGroup(e.target.value as RbacRoleGroup)}
-                className="bg-transparent text-slate-900 font-semibold focus:outline-none cursor-pointer pr-1 max-w-[140px] sm:max-w-none truncate"
-              >
-                {rbacGroups.map((item) => (
-                  <option key={item.group} value={item.group}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
-
         {/* User Profile */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
           <div
@@ -340,6 +316,15 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => logoutUser()}
+            title="Sign out"
+            aria-label="Sign out"
+            className="ml-1 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bronze-500"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
       </div>
     </header>

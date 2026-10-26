@@ -27,6 +27,19 @@
   --color-montex-card: #FFFFFF;
   --color-montex-text: #1C2736;
   --color-montex-muted: #687587;
+
+  /* Restrained bronze accent (blueprint: deep navy + restrained bronze).
+     bronze-600 and darker pass 4.5:1 on white; bronze-300 passes on navy-900. */
+  --color-bronze-50: #FBF6EF;
+  --color-bronze-100: #F3E7D5;
+  --color-bronze-200: #E6CDA8;
+  --color-bronze-300: #D4AE7B;
+  --color-bronze-400: #C08F55;
+  --color-bronze-500: #A9753C;
+  --color-bronze-600: #8C5E2E;
+  --color-bronze-700: #6F4A25;
+  --color-bronze-800: #54381D;
+  --color-bronze-900: #3B2815;
 }
 
 :root {
