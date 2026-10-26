@@ -219,6 +219,22 @@ async function main() {
   await check('A consistent lot (500 = 492 + 8) is accepted from Quality', () =>
     assertSucceeds(setDoc(doc(as('quality1'), 'qualityInspections/QC-2'), inspection('QC-2', 500, 492, 8)))
   );
+  await check('Rework larger than the rejected quantity is refused', () =>
+    assertFails(
+      setDoc(doc(as('quality1'), 'qualityInspections/QC-4'), {
+        ...inspection('QC-4', 100, 90, 10),
+        reworkQtyMT: 12,
+      })
+    )
+  );
+  await check('Rework within the rejected quantity is accepted', () =>
+    assertSucceeds(
+      setDoc(doc(as('quality1'), 'qualityInspections/QC-5'), {
+        ...inspection('QC-5', 100, 90, 10),
+        reworkQtyMT: 4,
+      })
+    )
+  );
   await check('Sales cannot record a quality inspection', () =>
     assertFails(setDoc(doc(as('sales1'), 'qualityInspections/QC-3'), inspection('QC-3', 10, 10, 0)))
   );

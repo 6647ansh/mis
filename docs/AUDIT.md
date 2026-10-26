@@ -92,8 +92,11 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 
 Asked one by one as each module is reached; nothing is assumed:
 
-- Who may approve or reject employees (Super Admin only, or the CEO too)?
-- Which roles may see prices, customers and finance figures in sales orders (S5)?
+- ~~Rework vs rejected~~ → rework is part of rejected (rule: rework ≤ rejected).
+- ~~Cleared lot with unaccounted pieces~~ → warning only, not blocked.
+- ~~Who approves employees~~ → Super Admin and CEO (CEO cannot create admins/CEOs).
+- ~~Who sees prices~~ → Sales, Finance, CEO, Super Admin only (to implement: commercial
+  fields move to a restricted sub-document, since Firestore cannot hide single fields).
 - Is quality acceptance and/or finance clearance mandatory before dispatch?
 - Which KPIs and alerts belong on the 9 AM command-center screen?
 - Which existing data (RTDB or Firestore) is real production data to migrate?

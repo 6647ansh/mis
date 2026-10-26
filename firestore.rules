@@ -484,7 +484,8 @@ service cloud.firestore {
       data.rejectedQtyMT is number && data.rejectedQtyMT >= 0 &&
       // Blueprint: never store an impossible lot (e.g. 500 inspected, 500 passed, 8 rejected).
       data.acceptedQtyMT + data.rejectedQtyMT <= data.inspectedQtyMT &&
-      (!('reworkQtyMT' in data) || (data.reworkQtyMT is number && data.reworkQtyMT >= 0)) &&
+      // Rework pieces are a part of the rejected pieces (confirmed by Montex).
+      (!('reworkQtyMT' in data) || (data.reworkQtyMT is number && data.reworkQtyMT >= 0 && data.reworkQtyMT <= data.rejectedQtyMT)) &&
       (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 300)) &&
       (!('ndtStatus' in data) || (data.ndtStatus is string && data.ndtStatus in ['Passed', 'Failed', 'Pending'])) &&
       (!('hardnessHBW' in data) || (data.hardnessHBW is string && data.hardnessHBW.size() <= 40)) &&
