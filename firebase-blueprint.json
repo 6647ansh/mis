@@ -1,0 +1,3078 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authoritative employee user profile and granular RBAC assignment for Montex Forge MIS.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication UID matching the document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Corporate or verified employee email address.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Full employee display name.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "description": "Canonical granular UserRole enforced at database and application layers.",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "legacyRole": {
+          "type": "string",
+          "description": "Optional backward-compatible granular role identifier.",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "rbacGroup": {
+          "type": "string",
+          "description": "Descriptive RBAC department grouping.",
+          "enum": [
+            "Admin",
+            "Management",
+            "Sales",
+            "Production",
+            "Finance"
+          ]
+        },
+        "department": {
+          "type": "string",
+          "description": "Manufacturing plant department name.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "designation": {
+          "type": "string",
+          "description": "Official job title at Montex Forge.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "accountStatus": {
+          "type": "string",
+          "description": "Account lifecycle status. Only active accounts are granted database access.",
+          "enum": [
+            "active",
+            "inactive",
+            "suspended",
+            "pending_setup"
+          ]
+        },
+        "mustChangePassword": {
+          "type": "boolean",
+          "description": "Flag indicating whether employee must rotate temporary password on next login."
+        },
+        "provisionedBy": {
+          "type": "string",
+          "description": "UID or email of the Super Admin who provisioned the account.",
+          "maxLength": 160
+        },
+        "provisionedAt": {
+          "type": "string",
+          "description": "ISO-8601 timestamp when account was provisioned.",
+          "maxLength": 40
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Module-level permission map synchronized with canonical role."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp.",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp.",
+          "maxLength": 40
+        },
+        "lastLogin": {
+          "type": "string",
+          "description": "Last sign-in timestamp.",
+          "maxLength": 40
+        },
+        "isDepartmentHead": {
+          "type": "boolean",
+          "description": "Flag indicating if employee is an authorized Department Head for task verification and handovers."
+        },
+        "managedDepartment": {
+          "type": "string",
+          "description": "Department scope managed by Department Head.",
+          "maxLength": 80
+        },
+        "reportingManagerUid": {
+          "type": "string",
+          "description": "UID of reporting supervisor/manager.",
+          "maxLength": 128
+        },
+        "dataOrigin": {
+          "type": "string",
+          "description": "Record provenance tag.",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "role",
+        "department",
+        "accountStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SystemConfigDocument": {
+      "title": "SystemConfigDocument",
+      "description": "Singleton system configuration and executive summary documents (dashboardKpis, productionSummary, alertThresholds).",
+      "type": "object",
+      "properties": {
+        "configId": {
+          "type": "string",
+          "description": "Document identifier matching config key.",
+          "enum": [
+            "dashboardKpis",
+            "productionSummary",
+            "alertThresholds",
+            "connection_probe"
+          ]
+        },
+        "configType": {
+          "type": "string",
+          "description": "Configuration category.",
+          "enum": [
+            "dashboardKpis",
+            "productionSummary",
+            "alertThresholds",
+            "connection_probe"
+          ]
+        },
+        "totalOrderBookValue": {
+          "type": "number",
+          "description": "Total active order book value in INR."
+        },
+        "activeOrdersCount": {
+          "type": "number",
+          "description": "Count of active sales orders."
+        },
+        "delayedOrdersCount": {
+          "type": "number",
+          "description": "Count of delayed sales orders."
+        },
+        "monthlyDispatchMT": {
+          "type": "number",
+          "description": "Monthly dispatched tonnage in MT."
+        },
+        "monthlyDispatchTargetMT": {
+          "type": "number",
+          "description": "Target monthly dispatch tonnage in MT."
+        },
+        "rawMaterialStockMT": {
+          "type": "number",
+          "description": "Total raw material stock in MT."
+        },
+        "lowStockAlertsCount": {
+          "type": "number",
+          "description": "Count of raw material grades below reorder threshold."
+        },
+        "rejectionRatePct": {
+          "type": "number",
+          "description": "Plant-wide quality rejection percentage."
+        },
+        "maxRejectionThresholdPct": {
+          "type": "number",
+          "description": "Maximum allowed rejection percentage threshold."
+        },
+        "totalOutstandingINR": {
+          "type": "number",
+          "description": "Total customer receivables outstanding in INR."
+        },
+        "overdueReceivablesINR": {
+          "type": "number",
+          "description": "Overdue customer receivables (>90 days) in INR."
+        },
+        "fpyPercentage": {
+          "type": "number",
+          "description": "First Pass Yield percentage."
+        },
+        "reworkTons": {
+          "type": "number",
+          "description": "Total rework tonnage in MT."
+        },
+        "scrapPct": {
+          "type": "number",
+          "description": "Scrap percentage."
+        },
+        "ncrCount": {
+          "type": "number",
+          "description": "Open Non-Conformance Report count."
+        },
+        "Low_Stock_Threshold_Tons": {
+          "type": "number",
+          "description": "Alert threshold for low raw material stock in MT."
+        },
+        "Delay_Threshold_Days": {
+          "type": "number",
+          "description": "Alert threshold for order delay in days."
+        },
+        "Rejection_Rate_Max_Pct": {
+          "type": "number",
+          "description": "Alert threshold for rejection rate percentage."
+        },
+        "Payment_Overdue_Days": {
+          "type": "number",
+          "description": "Alert threshold for payment overdue days."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of actor who last updated the document.",
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp.",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "configId",
+        "configType",
+        "updatedAt"
+      ]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Master record for industrial B2B forging customers.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "contactPerson": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "gstin": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "creditLimit": {
+          "type": "number"
+        },
+        "paymentTermsDays": {
+          "type": "number"
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "code": {
+          "type": "string",
+          "description": "First-class customer master code (e.g., MF-CUST-001).",
+          "maxLength": 64
+        },
+        "location": {
+          "type": "string",
+          "description": "Customer city and state location.",
+          "maxLength": 160
+        },
+        "industry": {
+          "type": "string",
+          "description": "Customer B2B industrial sector.",
+          "maxLength": 120
+        },
+        "assignedSalesPerson": {
+          "type": "string",
+          "description": "Assigned Sales / Account Manager.",
+          "maxLength": 120
+        },
+        "totalOrders": {
+          "type": "number",
+          "description": "Total historical orders count."
+        },
+        "totalOutstanding": {
+          "type": "number",
+          "description": "Current outstanding balance in INR."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Active",
+            "On Hold",
+            "Inactive"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "contactPerson",
+        "email",
+        "creditLimit",
+        "status",
+        "createdAt"
+      ]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Master catalog record for forged rings, flanges, shafts, and blanks.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Flanges",
+            "Rolled Rings",
+            "Forged Shafts",
+            "Gear Blanks",
+            "Custom Forgings"
+          ]
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "standardWeightKg": {
+          "type": "number"
+        },
+        "unitPrice": {
+          "type": "number"
+        },
+        "drawingNo": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "heatTreatmentReq": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "code": {
+          "type": "string",
+          "description": "First-class product catalog code.",
+          "maxLength": 80
+        },
+        "size": {
+          "type": "string",
+          "description": "Nominal pipe size / forging dimensions.",
+          "maxLength": 80
+        },
+        "standard": {
+          "type": "string",
+          "description": "Engineering specification standard (e.g., ASME B16.5).",
+          "maxLength": 80
+        },
+        "hsnCode": {
+          "type": "string",
+          "description": "GST HSN tariff code.",
+          "maxLength": 32
+        },
+        "uom": {
+          "type": "string",
+          "description": "Unit of measure (PCS, MT, KG).",
+          "maxLength": 16
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Active",
+            "Discontinued"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category",
+        "steelGrade",
+        "standardWeightKg",
+        "unitPrice",
+        "status",
+        "createdAt"
+      ]
+    },
+    "OrderJourney": {
+      "title": "OrderJourney",
+      "description": "End-to-end Sales Order lifecycle tracking across Inquiry, Forging, Heat Treatment, Machining, Quality, Dispatch, and Invoicing.",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "productId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "productName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "quantityMT": {
+          "type": "number"
+        },
+        "totalValueINR": {
+          "type": "number"
+        },
+        "orderDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "committedDeliveryDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "currentStage": {
+          "type": "string",
+          "enum": [
+            "Inquiry",
+            "Order Confirmed",
+            "Raw Material Allocated",
+            "Forging",
+            "Heat Treatment",
+            "Machining",
+            "Quality Inspection",
+            "Ready for Dispatch",
+            "Dispatched",
+            "Invoiced"
+          ]
+        },
+        "overallStatus": {
+          "type": "string",
+          "enum": [
+            "On Track",
+            "At Risk",
+            "Delayed",
+            "Completed",
+            "Cancelled"
+          ]
+        },
+        "delayDays": {
+          "type": "number"
+        },
+        "delayReason": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "heatNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "mtcStatus": {
+          "type": "string",
+          "enum": [
+            "Pending",
+            "Generated",
+            "Verified"
+          ]
+        },
+        "dispatchStatus": {
+          "type": "string",
+          "enum": [
+            "Not Started",
+            "Partial",
+            "Dispatched",
+            "Delivered"
+          ]
+        },
+        "invoiceNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": [
+            "Unbilled",
+            "Pending",
+            "Partially Paid",
+            "Paid",
+            "Overdue"
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "description": "Bounded stage progression array (<= 12 stages)."
+        },
+        "fprUid": {
+          "type": "string",
+          "description": "Assigned Focal Point of Responsibility (FPR) user UID.",
+          "maxLength": 128
+        },
+        "fprName": {
+          "type": "string",
+          "description": "Assigned FPR full name for customer order coordination.",
+          "maxLength": 120
+        },
+        "fprDepartment": {
+          "type": "string",
+          "description": "Department of assigned FPR.",
+          "maxLength": 80
+        },
+        "handoverStage": {
+          "type": "string",
+          "description": "Current inter-department handover gate (H-1 to H-5).",
+          "maxLength": 40
+        },
+        "documentChecklistStatus": {
+          "type": "string",
+          "description": "Pre-dispatch documentation dossier status.",
+          "maxLength": 40
+        },
+        "creditHoldOverrideBy": {
+          "type": "string",
+          "description": "CEO/Super Admin who authorized credit hold dispatch override.",
+          "maxLength": 120
+        },
+        "creditHoldOverrideReason": {
+          "type": "string",
+          "description": "Mandatory justification for credit hold override.",
+          "maxLength": 400
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "orderId",
+        "customerName",
+        "productName",
+        "steelGrade",
+        "quantityMT",
+        "totalValueINR",
+        "orderDate",
+        "committedDeliveryDate",
+        "currentStage",
+        "overallStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DispatchConsignmentRecord": {
+      "title": "DispatchConsignmentRecord",
+      "description": "Dispatch consignment, transporter vehicle, challan, and delivery tracking record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "productName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "quantityTons": {
+          "type": "number"
+        },
+        "dispatchDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "transporterName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "vehicleNo": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "lrNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "invoiceNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "destination": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Scheduled",
+            "Loading",
+            "In Transit",
+            "Delivered",
+            "Delayed"
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "orderId",
+        "customerName",
+        "quantityTons",
+        "dispatchDate",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RawMaterialStock": {
+      "title": "RawMaterialStock",
+      "description": "Steel grade billet/ingot inventory balance, reorder level, and valuation.",
+      "type": "object",
+      "properties": {
+        "gradeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Carbon Steel",
+            "Alloy Steel",
+            "Stainless Steel",
+            "Tool Steel",
+            "Duplex Steel"
+          ]
+        },
+        "availableMT": {
+          "type": "number"
+        },
+        "allocatedMT": {
+          "type": "number"
+        },
+        "reorderLevelMT": {
+          "type": "number"
+        },
+        "unitCostPerMT": {
+          "type": "number"
+        },
+        "supplierName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "heatBatchNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "locationYard": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Healthy",
+            "Low Stock",
+            "Critical"
+          ]
+        },
+        "lastUpdated": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "gradeId",
+        "steelGrade",
+        "availableMT",
+        "reorderLevelMT",
+        "status",
+        "lastUpdated"
+      ]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Immutable raw material stock ledger transaction (INWARD, ISSUE, RETURN, ADJUSTMENT).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "gradeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "INWARD",
+            "ISSUE",
+            "RETURN",
+            "ADJUSTMENT"
+          ]
+        },
+        "quantityTons": {
+          "type": "number"
+        },
+        "heatNumber": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "referenceDocument": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "orderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "performedBy": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "performedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "timestamp": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "remarks": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "balanceAfterMT": {
+          "type": "number"
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "gradeId",
+        "steelGrade",
+        "type",
+        "quantityTons",
+        "performedBy",
+        "timestamp"
+      ]
+    },
+    "QualityInspectionRecord": {
+      "title": "QualityInspectionRecord",
+      "description": "Metallurgical, NDT (UT/MPI/LPI), hardness, and MTC quality inspection record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "productName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "steelGrade": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "heatNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "inspectedQtyMT": {
+          "type": "number"
+        },
+        "acceptedQtyMT": {
+          "type": "number"
+        },
+        "rejectedQtyMT": {
+          "type": "number"
+        },
+        "reworkQtyMT": {
+          "type": "number"
+        },
+        "rejectionReason": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "ndtStatus": {
+          "type": "string",
+          "enum": [
+            "Passed",
+            "Failed",
+            "Pending"
+          ]
+        },
+        "hardnessHBW": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "mtcNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "inspectorName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "inspectionDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Approved",
+            "Rejected",
+            "Hold",
+            "Rework"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "batchId",
+        "orderId",
+        "inspectedQtyMT",
+        "acceptedQtyMT",
+        "rejectedQtyMT",
+        "status",
+        "inspectionDate",
+        "createdAt"
+      ]
+    },
+    "OutstandingAgeingRecord": {
+      "title": "OutstandingAgeingRecord",
+      "description": "Sensitive customer invoice receivables and ageing bucket tracker.",
+      "type": "object",
+      "properties": {
+        "invoiceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "invoiceDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "invoiceAmountINR": {
+          "type": "number"
+        },
+        "receivedAmountINR": {
+          "type": "number"
+        },
+        "balanceAmountINR": {
+          "type": "number"
+        },
+        "daysOverdue": {
+          "type": "number"
+        },
+        "ageingBucket": {
+          "type": "string",
+          "enum": [
+            "0-30 Days",
+            "31-60 Days",
+            "61-90 Days",
+            "90+ Days"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Current",
+            "Due Soon",
+            "Overdue",
+            "Critical Overdue",
+            "Paid"
+          ]
+        },
+        "lastFollowUpDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "remarks": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "invoiceId",
+        "customerName",
+        "invoiceDate",
+        "dueDate",
+        "invoiceAmountINR",
+        "receivedAmountINR",
+        "balanceAmountINR",
+        "ageingBucket",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "ActionQueueItem": {
+      "title": "ActionQueueItem",
+      "description": "Plant-wide exception alert and action queue item across Inventory, Orders, Quality, and Finance.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Inventory",
+            "Production",
+            "Quality",
+            "Finance",
+            "Dispatch",
+            "Maintenance"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "CRITICAL",
+            "HIGH",
+            "MEDIUM",
+            "LOW"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "entityRef": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "assignedRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "OPEN",
+            "ACKNOWLEDGED",
+            "RESOLVED"
+          ]
+        },
+        "acknowledgedBy": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "acknowledgedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "severity",
+        "title",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Immutable append-only security and operational audit trail entry.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "actorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "actorEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "actorName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "actorRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "module": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "entityId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "details": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 1000
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "INFO",
+            "WARNING",
+            "CRITICAL"
+          ]
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "actorUid",
+        "actorRole",
+        "action",
+        "module",
+        "details"
+      ]
+    },
+    "QuotationRecord": {
+      "title": "QuotationRecord",
+      "description": "Commercial RFQ and customer quotation register (#1 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "quoteNo": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "productName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "quantityMT": {
+          "type": "number"
+        },
+        "quotedRatePerKg": {
+          "type": "number"
+        },
+        "totalValueINR": {
+          "type": "number"
+        },
+        "validUntil": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Sent",
+            "Under Negotiation",
+            "Won",
+            "Lost",
+            "Expired"
+          ]
+        },
+        "preparedBy": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "contactPerson": {
+          "type": "string",
+          "description": "First-class customer contact person for RFQ.",
+          "maxLength": 120
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "productId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "followUpNotes": {
+          "type": "string",
+          "description": "Full commercial negotiation and follow-up log (non-truncated).",
+          "maxLength": 1000
+        },
+        "nextFollowUpDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "convertedOrderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "inquiryQtyPcs": {
+          "type": "number"
+        },
+        "unitWeightKg": {
+          "type": "number"
+        },
+        "quotedRatePerPc": {
+          "type": "number"
+        },
+        "estimatedMarginPercent": {
+          "type": "number"
+        },
+        "deliveryLeadWeeks": {
+          "type": "number"
+        },
+        "isRepeatOrder": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "quoteNo",
+        "customerName",
+        "productName",
+        "steelGrade",
+        "quantityMT",
+        "totalValueINR",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TenderRecord": {
+      "title": "TenderRecord",
+      "description": "PSU, railway, defense, and EPC contract tender bid register (#2 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "tenderNo": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "issuingAuthority": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "projectTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 200
+        },
+        "estimatedValueINR": {
+          "type": "number"
+        },
+        "emdAmountINR": {
+          "type": "number"
+        },
+        "submissionDeadline": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "technicalBidStatus": {
+          "type": "string",
+          "enum": [
+            "Preparing",
+            "Submitted",
+            "Qualified",
+            "Disqualified",
+            "Awarded",
+            "Lost"
+          ]
+        },
+        "ownerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "tenderNo",
+        "issuingAuthority",
+        "projectTitle",
+        "estimatedValueINR",
+        "submissionDeadline",
+        "technicalBidStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SteelMillSupplier": {
+      "title": "SteelMillSupplier",
+      "description": "Approved steel mill vendor master and vendor rating registry.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "primaryGrades": {
+          "type": "array",
+          "description": "Bounded list of approved steel grades (<= 20)."
+        },
+        "leadTimeDays": {
+          "type": "number"
+        },
+        "qualityRating": {
+          "type": "number"
+        },
+        "onTimeDeliveryPct": {
+          "type": "number"
+        },
+        "approvalStatus": {
+          "type": "string",
+          "enum": [
+            "Approved",
+            "Probation",
+            "Suspended"
+          ]
+        },
+        "contactEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "leadTimeDays",
+        "approvalStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PurchaseOrderRecord": {
+      "title": "PurchaseOrderRecord",
+      "description": "Steel mill billet/ingot procurement Purchase Order register (#3 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poNumber": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "supplierId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "supplierName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "orderedMT": {
+          "type": "number"
+        },
+        "receivedMT": {
+          "type": "number"
+        },
+        "ratePerMT": {
+          "type": "number"
+        },
+        "totalAmountINR": {
+          "type": "number"
+        },
+        "orderDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "expectedDeliveryDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Issued",
+            "In Transit",
+            "Partially Received",
+            "Received",
+            "Cancelled"
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "poNumber",
+        "supplierName",
+        "steelGrade",
+        "orderedMT",
+        "ratePerMT",
+        "totalAmountINR",
+        "expectedDeliveryDate",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ShopMachineLog": {
+      "title": "ShopMachineLog",
+      "description": "Shop floor hydraulic press, ring rolling mill, hammer, and CNC machine utilization log (#4 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "machineId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "machineName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "shift": {
+          "type": "string",
+          "enum": [
+            "Shift A",
+            "Shift B",
+            "Shift C"
+          ]
+        },
+        "operatorName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "orderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "operationType": {
+          "type": "string",
+          "enum": [
+            "Open Die Forging",
+            "Ring Rolling",
+            "Closed Die Hammer",
+            "CNC Turning",
+            "Band Saw Cutting"
+          ]
+        },
+        "outputTons": {
+          "type": "number"
+        },
+        "utilizationPct": {
+          "type": "number"
+        },
+        "downtimeMinutes": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Running",
+            "Setup",
+            "Idle",
+            "Breakdown",
+            "Maintenance"
+          ]
+        },
+        "loggedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "machineId",
+        "machineName",
+        "shift",
+        "operationType",
+        "outputTons",
+        "status",
+        "loggedAt",
+        "updatedAt"
+      ]
+    },
+    "FurnaceBatchLog": {
+      "title": "FurnaceBatchLog",
+      "description": "Reheating and heat treatment furnace batch thermal cycle log (#5 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "furnaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "batchNo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "orderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "steelGrade": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "cycleType": {
+          "type": "string",
+          "enum": [
+            "Reheating",
+            "Normalizing",
+            "Annealing",
+            "Quenching & Tempering",
+            "Stress Relieving"
+          ]
+        },
+        "targetTempC": {
+          "type": "number"
+        },
+        "soakTimeHours": {
+          "type": "number"
+        },
+        "chargeWeightMT": {
+          "type": "number"
+        },
+        "fuelConsumedSCM": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Charging",
+            "Heating",
+            "Soaking",
+            "Cooling",
+            "Completed",
+            "Aborted"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "furnaceId",
+        "batchNo",
+        "cycleType",
+        "targetTempC",
+        "chargeWeightMT",
+        "status",
+        "startedAt",
+        "updatedAt"
+      ]
+    },
+    "MachineMaintenanceTicket": {
+      "title": "MachineMaintenanceTicket",
+      "description": "Preventive and breakdown plant equipment maintenance ticket (#6 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ticketNo": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "machineId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "machineName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "maintenanceType": {
+          "type": "string",
+          "enum": [
+            "Preventive",
+            "Breakdown",
+            "Hydraulic Seal",
+            "Die Change",
+            "Calibration"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "Critical",
+            "High",
+            "Medium",
+            "Low"
+          ]
+        },
+        "issueDescription": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        },
+        "assignedTechnician": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "estimatedDowntimeHours": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Open",
+            "In Progress",
+            "Awaiting Spares",
+            "Resolved",
+            "Closed"
+          ]
+        },
+        "reportedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ticketNo",
+        "machineId",
+        "machineName",
+        "maintenanceType",
+        "priority",
+        "issueDescription",
+        "status",
+        "reportedAt",
+        "updatedAt"
+      ]
+    },
+    "PowerConsumptionLog": {
+      "title": "PowerConsumptionLog",
+      "description": "Plant electrical kWh, PNG gas SCM, and energy intensity per forged MT log (#7 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "logDate": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 40
+        },
+        "shift": {
+          "type": "string",
+          "enum": [
+            "Shift A",
+            "Shift B",
+            "Shift C",
+            "Full Day"
+          ]
+        },
+        "electricityKwh": {
+          "type": "number"
+        },
+        "pngGasSCM": {
+          "type": "number"
+        },
+        "productionOutputMT": {
+          "type": "number"
+        },
+        "kwhPerMT": {
+          "type": "number"
+        },
+        "powerFactor": {
+          "type": "number"
+        },
+        "peakDemandKva": {
+          "type": "number"
+        },
+        "loggedBy": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "logDate",
+        "shift",
+        "electricityKwh",
+        "productionOutputMT",
+        "kwhPerMT",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DimensionalInspectionReport": {
+      "title": "DimensionalInspectionReport",
+      "description": "CMM and vernacular caliper dimensional tolerance inspection report (OD, ID, thickness, ovality) (#8 persistent operational register).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "reportNo": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "drawingNo": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "outerDiaNominalMm": {
+          "type": "number"
+        },
+        "outerDiaObservedMm": {
+          "type": "number"
+        },
+        "innerDiaNominalMm": {
+          "type": "number"
+        },
+        "innerDiaObservedMm": {
+          "type": "number"
+        },
+        "heightNominalMm": {
+          "type": "number"
+        },
+        "heightObservedMm": {
+          "type": "number"
+        },
+        "deviationMm": {
+          "type": "number"
+        },
+        "toleranceResult": {
+          "type": "string",
+          "enum": [
+            "Within Tolerance",
+            "Minor Deviation",
+            "Out of Tolerance"
+          ]
+        },
+        "inspectorName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "inspectedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "reportNo",
+        "orderId",
+        "outerDiaNominalMm",
+        "outerDiaObservedMm",
+        "toleranceResult",
+        "inspectedAt",
+        "updatedAt"
+      ]
+    },
+    "JobCostSheet": {
+      "title": "JobCostSheet",
+      "description": "Sensitive order-level manufacturing cost breakdown and margin analysis sheet.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "productName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "rawMaterialCostINR": {
+          "type": "number"
+        },
+        "forgingConversionCostINR": {
+          "type": "number"
+        },
+        "heatTreatmentCostINR": {
+          "type": "number"
+        },
+        "machiningCostINR": {
+          "type": "number"
+        },
+        "testingAndMtcCostINR": {
+          "type": "number"
+        },
+        "totalActualCostINR": {
+          "type": "number"
+        },
+        "salesRealizationINR": {
+          "type": "number"
+        },
+        "grossMarginINR": {
+          "type": "number"
+        },
+        "grossMarginPct": {
+          "type": "number"
+        },
+        "costStatus": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Provisional",
+            "Finalized"
+          ]
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "orderId",
+        "customerName",
+        "rawMaterialCostINR",
+        "forgingConversionCostINR",
+        "totalActualCostINR",
+        "salesRealizationINR",
+        "grossMarginPct",
+        "costStatus",
+        "updatedAt"
+      ]
+    },
+    "TaskRecord": {
+      "title": "TaskRecord",
+      "description": "Central Task, Accountability, Supervisor Verification & SLA Escalation Engine record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "taskCode": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "department": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "assignedToUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "assignedToName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "assignedToRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "assignedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "assignedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "linkedEntityType": {
+          "type": "string",
+          "enum": [
+            "Order",
+            "Quotation",
+            "Tender",
+            "PO",
+            "PR",
+            "QC",
+            "NCR",
+            "Dispatch",
+            "Invoice",
+            "SOP"
+          ]
+        },
+        "linkedEntityId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "Critical",
+            "High",
+            "Medium",
+            "Low"
+          ]
+        },
+        "frequency": {
+          "type": "string",
+          "enum": [
+            "One-Time",
+            "Daily",
+            "Weekly",
+            "Monthly",
+            "Stage-Gate"
+          ]
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "slaHours": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Assigned",
+            "Accepted",
+            "In Progress",
+            "Blocked",
+            "Submitted for Verification",
+            "Verified & Approved",
+            "Rejected / Rework",
+            "Overdue",
+            "Escalated"
+          ]
+        },
+        "evidenceNotes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "evidenceRef": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "submittedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "verifiedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "verifiedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "verifiedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "verificationRemarks": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "escalationLevel": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "taskCode",
+        "title",
+        "department",
+        "assignedToUid",
+        "assignedToName",
+        "assignedToRole",
+        "priority",
+        "dueDate",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "HandoverRecord": {
+      "title": "HandoverRecord",
+      "description": "Dual-custody inter-department stage handover record (H-1 to H-5).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "handoverCode": {
+          "type": "string",
+          "enum": [
+            "H-1",
+            "H-2",
+            "H-3",
+            "H-4",
+            "H-5"
+          ]
+        },
+        "handoverTitle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "jobNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "fromDepartment": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "fromRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "initiatedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "initiatedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "toDepartment": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "toRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "ceo",
+            "sales",
+            "stores",
+            "purchase",
+            "quality",
+            "dispatch",
+            "finance"
+          ]
+        },
+        "quantityPcs": {
+          "type": "number"
+        },
+        "weightMt": {
+          "type": "number"
+        },
+        "heatNumber": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "checklistSummary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Pending Acceptance",
+            "Accepted",
+            "Rejected / Returned",
+            "Escalated"
+          ]
+        },
+        "acceptedOrRejectedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "acceptedOrRejectedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "receiverRemarks": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "slaHours": {
+          "type": "number"
+        },
+        "initiatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "completedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "handoverCode",
+        "handoverTitle",
+        "orderId",
+        "fromDepartment",
+        "fromRole",
+        "initiatedByUid",
+        "toDepartment",
+        "toRole",
+        "status",
+        "initiatedAt",
+        "updatedAt"
+      ]
+    },
+    "PurchaseRequisitionRecord": {
+      "title": "PurchaseRequisitionRecord",
+      "description": "Raw material and stores Purchase Requisition (PR) with Maker!=Checker approval gate.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "prNumber": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "requestedDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "requestedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "department": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "linkedJobNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "materialId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "materialCode": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "steelGrade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sectionMm": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "requiredMt": {
+          "type": "number"
+        },
+        "estimatedRatePerMt": {
+          "type": "number"
+        },
+        "estimatedTotalInr": {
+          "type": "number"
+        },
+        "preferredSupplierName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "urgency": {
+          "type": "string",
+          "enum": [
+            "Emergency Breakdown",
+            "High - Order Linked",
+            "Standard Replenishment"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Pending Approval",
+            "Approved",
+            "Rejected",
+            "Converted to PO"
+          ]
+        },
+        "approvedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "approvedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "approvedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "approvalRemarks": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "convertedPoId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "prNumber",
+        "requestedByUid",
+        "steelGrade",
+        "requiredMt",
+        "estimatedTotalInr",
+        "urgency",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "NcrCapaRecord": {
+      "title": "NcrCapaRecord",
+      "description": "Non-Conformance Report (NCR), Root Cause Analysis (RCA), and Corrective/Preventive Action (CAPA) register.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ncrNumber": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "jobNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "productName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "steelGrade": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "heatNo": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "defectCategory": {
+          "type": "string",
+          "enum": [
+            "Dimensional Out-of-Tolerance",
+            "UT Internal Discontinuity",
+            "Surface Crack / Lap",
+            "Hardness / Heat Treatment Deviation",
+            "Chemical Composition Deviation"
+          ]
+        },
+        "rejectedQtyPcs": {
+          "type": "number"
+        },
+        "reworkQtyPcs": {
+          "type": "number"
+        },
+        "costOfPoorQualityInr": {
+          "type": "number"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "Rework & Re-Inspect",
+            "Scrap & Re-Forge",
+            "Use-As-Is (Customer Concession)",
+            "Quarantine Hold"
+          ]
+        },
+        "rootCause5Why": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "correctiveAction": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "preventiveAction": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "raisedBy": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Open - Quarantine",
+            "RCA In Progress",
+            "CAPA Implemented",
+            "Verified & Closed"
+          ]
+        },
+        "verifiedBy": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ncrNumber",
+        "orderId",
+        "defectCategory",
+        "rejectedQtyPcs",
+        "disposition",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PaymentFollowUpRecord": {
+      "title": "PaymentFollowUpRecord",
+      "description": "Customer receivable collection follow-up and supplier payable tracking log.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "invoiceNumber": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "invoiceAmountInr": {
+          "type": "number"
+        },
+        "promisedPaymentDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "contactedPerson": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "followUpMode": {
+          "type": "string",
+          "enum": [
+            "Phone Call",
+            "Official Email",
+            "Account Visit",
+            "Legal / Credit Hold Notice"
+          ]
+        },
+        "followUpNotes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "loggedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "loggedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Promised",
+            "Part Received",
+            "Disputed",
+            "Escalated to CEO",
+            "Settled"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": [
+            "production",
+            "demo_sandbox",
+            "bootstrap_seed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "customerName",
+        "invoiceNumber",
+        "invoiceAmountInr",
+        "followUpMode",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Authoritative employee user profiles and canonical 8-role RBAC assignments."
+    },
+    "/systemConfig/{configId}": {
+      "schema": "SystemConfigDocument",
+      "description": "Singleton plant KPI summaries, production yield metrics, and global alert thresholds."
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Master directory of industrial B2B forging customers and credit limits."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Master catalog of forged flanges, rolled rings, shafts, and gear blanks."
+    },
+    "/salesOrders/{orderId}": {
+      "schema": "OrderJourney",
+      "description": "End-to-end Sales Order lifecycle tracking from Inquiry to Invoiced."
+    },
+    "/dispatches/{dispatchId}": {
+      "schema": "DispatchConsignmentRecord",
+      "description": "Dispatch consignments, vehicle numbers, LR/challans, and delivery status."
+    },
+    "/rawMaterials/{materialId}": {
+      "schema": "RawMaterialStock",
+      "description": "Steel grade billet and ingot inventory balances, yard locations, and reorder levels."
+    },
+    "/stockMovements/{movementId}": {
+      "schema": "StockMovement",
+      "description": "Immutable raw material stock movement ledger (INWARD, ISSUE, RETURN, ADJUSTMENT)."
+    },
+    "/qualityInspections/{inspectionId}": {
+      "schema": "QualityInspectionRecord",
+      "description": "Metallurgical, NDT, hardness, and MTC quality inspection records."
+    },
+    "/outstandingPayments/{paymentId}": {
+      "schema": "OutstandingAgeingRecord",
+      "description": "Sensitive customer invoice receivables and overdue ageing buckets."
+    },
+    "/actionQueue/{actionId}": {
+      "schema": "ActionQueueItem",
+      "description": "Plant-wide exception alerts and acknowledgement queue."
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLogEntry",
+      "description": "Append-only immutable compliance and security audit trail."
+    },
+    "/quotations/{quotationId}": {
+      "schema": "QuotationRecord",
+      "description": "Persistent Operational Register #1: Commercial RFQ and quotation tracking."
+    },
+    "/tenders/{tenderId}": {
+      "schema": "TenderRecord",
+      "description": "Persistent Operational Register #2: PSU/EPC tender bid tracking."
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "SteelMillSupplier",
+      "description": "Approved steel mill vendor master and delivery/quality ratings."
+    },
+    "/purchaseOrders/{poId}": {
+      "schema": "PurchaseOrderRecord",
+      "description": "Persistent Operational Register #3: Raw material procurement purchase orders."
+    },
+    "/machineLogs/{logId}": {
+      "schema": "ShopMachineLog",
+      "description": "Persistent Operational Register #4: Shop floor press, hammer, and ring mill shift logs."
+    },
+    "/furnaceLogs/{logId}": {
+      "schema": "FurnaceBatchLog",
+      "description": "Persistent Operational Register #5: Furnace heating and heat treatment thermal batch logs."
+    },
+    "/maintenanceTickets/{ticketId}": {
+      "schema": "MachineMaintenanceTicket",
+      "description": "Persistent Operational Register #6: Preventive and breakdown maintenance tickets."
+    },
+    "/powerLogs/{logId}": {
+      "schema": "PowerConsumptionLog",
+      "description": "Persistent Operational Register #7: Plant electricity kWh and PNG gas consumption logs."
+    },
+    "/dimensionalReports/{reportId}": {
+      "schema": "DimensionalInspectionReport",
+      "description": "Persistent Operational Register #8: CMM and dimensional tolerance inspection reports."
+    },
+    "/jobCostSheets/{costSheetId}": {
+      "schema": "JobCostSheet",
+      "description": "Sensitive order-level manufacturing cost breakdown and gross margin sheets."
+    },
+    "/tasks/{taskId}": {
+      "schema": "TaskRecord",
+      "description": "Central Task, Accountability, Supervisor Verification & SLA Escalation Engine."
+    },
+    "/handovers/{handoverId}": {
+      "schema": "HandoverRecord",
+      "description": "Dual-custody inter-department stage handover gates (H-1 to H-5)."
+    },
+    "/purchaseRequisitions/{requisitionId}": {
+      "schema": "PurchaseRequisitionRecord",
+      "description": "Raw material and stores Purchase Requisition (PR) approval register."
+    },
+    "/ncrCapaRecords/{ncrId}": {
+      "schema": "NcrCapaRecord",
+      "description": "Non-Conformance Report (NCR), Root Cause Analysis (RCA), and CAPA register."
+    },
+    "/paymentFollowUps/{followUpId}": {
+      "schema": "PaymentFollowUpRecord",
+      "description": "Customer receivable collection follow-up and supplier payable log."
+    }
+  }
+}

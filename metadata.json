@@ -1,0 +1,6 @@
+{
+  "name": "MONTEX MIS",
+  "description": "Operations and Management Information System for Montex Forge Industries",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

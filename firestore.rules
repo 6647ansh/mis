@@ -1,0 +1,1605 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 0. GLOBAL SAFETY NET — Default Deny Catch-All
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 1. CORE PRIMITIVES & IDENTITY HELPERS
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrapOwner() {
+      return isVerifiedEmail() &&
+        request.auth.token.email == 'anshyadav6647@gmail.com' &&
+        (!userProfileExists() || currentUserDoc().accountStatus != 'deactivated');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userProfileExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Active account gate: user must have an authoritative profile document with accountStatus == 'active' (or be the verified bootstrap owner)
+    function isActiveUser() {
+      return isSignedIn() && (
+        (userProfileExists() && currentUserDoc().accountStatus == 'active') ||
+        isBootstrapOwner()
+      );
+    }
+
+    // Granular 8-role resolution from authoritative /users/{uid} document
+    function hasRole(targetRole) {
+      return isSignedIn() && userProfileExists() && currentUserDoc().accountStatus == 'active' && (
+        currentUserDoc().role == targetRole ||
+        ('legacyRole' in currentUserDoc() && currentUserDoc().legacyRole == targetRole)
+      );
+    }
+
+    function isSuperAdmin() {
+      return hasRole('super_admin') || isBootstrapOwner();
+    }
+
+    function isCeo() {
+      return hasRole('ceo');
+    }
+
+    function isSales() {
+      return hasRole('sales');
+    }
+
+    function isStores() {
+      return hasRole('stores');
+    }
+
+    function isPurchase() {
+      return hasRole('purchase');
+    }
+
+    function isQuality() {
+      return hasRole('quality');
+    }
+
+    function isDispatch() {
+      return hasRole('dispatch');
+    }
+
+    function isFinance() {
+      return hasRole('finance');
+    }
+
+    function isValidRoleValue(roleVal) {
+      return roleVal is string && roleVal in [
+        'super_admin',
+        'ceo',
+        'sales',
+        'stores',
+        'purchase',
+        'quality',
+        'dispatch',
+        'finance'
+      ];
+    }
+
+    function isValidDataOrigin(data) {
+      return !('dataOrigin' in data) || (
+        data.dataOrigin is string &&
+        data.dataOrigin in ['production', 'demo_sandbox', 'bootstrap_seed']
+      );
+    }
+
+    // =========================================================================
+    // 2. ENTITY VALIDATION BLUEPRINTS (Anti-Update-Gap & Schema Enforcement)
+    // =========================================================================
+
+    // 2.1 UserProfile (/users/{userId})
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'email', 'displayName', 'role', 'department', 'accountStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'uid', 'name', 'email', 'displayName', 'role', 'requestedRole', 'requestedDepartment',
+        'legacyRole', 'rbacGroup', 'roleTitle', 'department', 'designation', 'avatarInitials', 'accountStatus', 'status',
+        'mustChangePassword', 'invitedBy', 'provisionedBy', 'provisionedAt',
+        'approvedByUid', 'approvedByEmail', 'approvedByName', 'approvedAt',
+        'rejectedByUid', 'rejectedByEmail', 'rejectedByName', 'rejectedAt', 'rejectionReason', 'approvalHistory',
+        'permissions', 'isDepartmentHead', 'managedDepartment', 'reportingManagerUid',
+        'createdAt', 'updatedAt', 'lastLogin', 'lastLoginAt',
+        'disabledAt', 'deactivatedBy', 'deactivationReason', 'dataOrigin'
+      ]) &&
+      data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+      (!('id' in data) || (data.id is string && data.id == userId && data.id.size() >= 1 && data.id.size() <= 128)) &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+      data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 120 &&
+      (!('name' in data) || (data.name is string && data.name.size() >= 2 && data.name.size() <= 120)) &&
+      isValidRoleValue(data.role) &&
+      (!('requestedRole' in data) || isValidRoleValue(data.requestedRole)) &&
+      (!('requestedDepartment' in data) || (data.requestedDepartment is string && data.requestedDepartment.size() <= 80)) &&
+      (!('legacyRole' in data) || (
+        isValidRoleValue(data.legacyRole) &&
+        (data.legacyRole != 'super_admin' || data.role == 'super_admin') &&
+        (data.legacyRole != 'ceo' || data.role == 'ceo' || data.role == 'super_admin')
+      )) &&
+      (!('rbacGroup' in data) || (
+        data.rbacGroup is string &&
+        data.rbacGroup in ['Admin', 'Management', 'Sales', 'Production', 'Finance'] &&
+        (data.rbacGroup != 'Admin' || data.role == 'super_admin') &&
+        (data.rbacGroup != 'Management' || data.role == 'ceo' || data.role == 'super_admin')
+      )) &&
+      data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+      (!('roleTitle' in data) || (data.roleTitle is string && data.roleTitle.size() >= 2 && data.roleTitle.size() <= 100)) &&
+      (!('designation' in data) || (data.designation is string && data.designation.size() >= 2 && data.designation.size() <= 100)) &&
+      (!('avatarInitials' in data) || (data.avatarInitials is string && data.avatarInitials.size() >= 1 && data.avatarInitials.size() <= 8)) &&
+      data.accountStatus is string && data.accountStatus in [
+        'active', 'deactivated', 'inactive', 'suspended', 'rejected', 'pending_invitation', 'pending_approval', 'pending_setup'
+      ] &&
+      (!('status' in data) || (data.status is string && data.status in ['Active', 'Inactive', 'Pending', 'Rejected'])) &&
+      (!('mustChangePassword' in data) || data.mustChangePassword is bool) &&
+      (!('isDepartmentHead' in data) || data.isDepartmentHead is bool) &&
+      (!('managedDepartment' in data) || (data.managedDepartment is string && data.managedDepartment.size() <= 80)) &&
+      (!('reportingManagerUid' in data) || (data.reportingManagerUid is string && data.reportingManagerUid.size() <= 128)) &&
+      (!('invitedBy' in data) || (data.invitedBy is string && data.invitedBy.size() <= 160)) &&
+      (!('provisionedBy' in data) || (data.provisionedBy is string && data.provisionedBy.size() <= 160)) &&
+      (!('provisionedAt' in data) || (data.provisionedAt is string && data.provisionedAt.size() <= 40)) &&
+      (!('approvedByUid' in data) || data.approvedByUid == null || (data.approvedByUid is string && data.approvedByUid.size() <= 128)) &&
+      (!('approvedByEmail' in data) || data.approvedByEmail == null || (data.approvedByEmail is string && data.approvedByEmail.size() <= 160)) &&
+      (!('approvedByName' in data) || data.approvedByName == null || (data.approvedByName is string && data.approvedByName.size() <= 160)) &&
+      (!('approvedAt' in data) || data.approvedAt == null || (data.approvedAt is string && data.approvedAt.size() <= 40)) &&
+      (!('rejectedByUid' in data) || data.rejectedByUid == null || (data.rejectedByUid is string && data.rejectedByUid.size() <= 128)) &&
+      (!('rejectedByEmail' in data) || data.rejectedByEmail == null || (data.rejectedByEmail is string && data.rejectedByEmail.size() <= 160)) &&
+      (!('rejectedByName' in data) || data.rejectedByName == null || (data.rejectedByName is string && data.rejectedByName.size() <= 160)) &&
+      (!('rejectedAt' in data) || data.rejectedAt == null || (data.rejectedAt is string && data.rejectedAt.size() <= 40)) &&
+      (!('rejectionReason' in data) || data.rejectionReason == null || (data.rejectionReason is string && data.rejectionReason.size() <= 500)) &&
+      (!('approvalHistory' in data) || (data.approvalHistory is list && data.approvalHistory.size() <= 50)) &&
+      (!('permissions' in data) || data.permissions is map || (data.permissions is list && data.permissions.size() <= 20)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      (!('lastLogin' in data) || (data.lastLogin is string && data.lastLogin.size() <= 40)) &&
+      (!('lastLoginAt' in data) || (data.lastLoginAt is string && data.lastLoginAt.size() <= 40)) &&
+      (!('disabledAt' in data) || data.disabledAt == null || (data.disabledAt is string && data.disabledAt.size() <= 40)) &&
+      (!('deactivatedBy' in data) || data.deactivatedBy == null || (data.deactivatedBy is string && data.deactivatedBy.size() <= 160)) &&
+      (!('deactivationReason' in data) || data.deactivationReason == null || (data.deactivationReason is string && data.deactivationReason.size() <= 300)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.2 SystemConfigDocument (/systemConfig/{configId})
+    function isValidSystemConfig(data, configId) {
+      return data.keys().hasAll(['configId', 'configType', 'updatedAt']) &&
+      data.keys().hasOnly([
+        'configId', 'configType', 'totalOrderBookValue', 'activeOrdersCount',
+        'delayedOrdersCount', 'monthlyDispatchMT', 'monthlyDispatchTargetMT',
+        'rawMaterialStockMT', 'lowStockAlertsCount', 'rejectionRatePct',
+        'maxRejectionThresholdPct', 'totalOutstandingINR', 'overdueReceivablesINR',
+        'fpyPercentage', 'reworkTons', 'scrapPct', 'ncrCount',
+        'Low_Stock_Threshold_Tons', 'Delay_Threshold_Days', 'Rejection_Rate_Max_Pct',
+        'Payment_Overdue_Days', 'updatedBy', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.configId is string && data.configId == configId &&
+      data.configId in ['dashboardKpis', 'productionSummary', 'alertThresholds', 'connection_probe'] &&
+      data.configType is string && data.configType == configId &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128)) &&
+      (!('totalOrderBookValue' in data) || (data.totalOrderBookValue is number && data.totalOrderBookValue >= 0)) &&
+      (!('activeOrdersCount' in data) || (data.activeOrdersCount is number && data.activeOrdersCount >= 0)) &&
+      (!('delayedOrdersCount' in data) || (data.delayedOrdersCount is number && data.delayedOrdersCount >= 0)) &&
+      (!('monthlyDispatchMT' in data) || (data.monthlyDispatchMT is number && data.monthlyDispatchMT >= 0)) &&
+      (!('rawMaterialStockMT' in data) || (data.rawMaterialStockMT is number && data.rawMaterialStockMT >= 0)) &&
+      (!('Low_Stock_Threshold_Tons' in data) || (data.Low_Stock_Threshold_Tons is number && data.Low_Stock_Threshold_Tons >= 0)) &&
+      (!('Delay_Threshold_Days' in data) || (data.Delay_Threshold_Days is number && data.Delay_Threshold_Days >= 0)) &&
+      (!('Rejection_Rate_Max_Pct' in data) || (data.Rejection_Rate_Max_Pct is number && data.Rejection_Rate_Max_Pct >= 0 && data.Rejection_Rate_Max_Pct <= 100)) &&
+      (!('Payment_Overdue_Days' in data) || (data.Payment_Overdue_Days is number && data.Payment_Overdue_Days >= 0)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.3 Customer (/customers/{customerId})
+    function isValidCustomer(data, customerId) {
+      return data.keys().hasAll([
+        'id', 'name', 'contactPerson', 'email', 'creditLimit', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'code', 'name', 'contactPerson', 'email', 'phone', 'gstin', 'creditLimit',
+        'paymentTermsDays', 'address', 'location', 'industry', 'assignedSalesPerson',
+        'totalOrders', 'totalOutstanding', 'status', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == customerId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      (!('code' in data) || (data.code is string && data.code.size() <= 64)) &&
+      data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+      data.contactPerson is string && data.contactPerson.size() >= 2 && data.contactPerson.size() <= 120 &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+      (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+      (!('gstin' in data) || (data.gstin is string && data.gstin.size() <= 32)) &&
+      data.creditLimit is number && data.creditLimit >= 0 &&
+      (!('paymentTermsDays' in data) || (data.paymentTermsDays is number && data.paymentTermsDays >= 0)) &&
+      (!('address' in data) || (data.address is string && data.address.size() <= 400)) &&
+      (!('location' in data) || (data.location is string && data.location.size() <= 160)) &&
+      (!('industry' in data) || (data.industry is string && data.industry.size() <= 120)) &&
+      (!('assignedSalesPerson' in data) || (data.assignedSalesPerson is string && data.assignedSalesPerson.size() <= 120)) &&
+      (!('totalOrders' in data) || (data.totalOrders is number && data.totalOrders >= 0)) &&
+      (!('totalOutstanding' in data) || (data.totalOutstanding is number && data.totalOutstanding >= 0)) &&
+      data.status is string && data.status in ['Active', 'On Hold', 'Inactive'] &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.4 Product (/products/{productId})
+    function isValidProduct(data, productId) {
+      return data.keys().hasAll([
+        'id', 'name', 'category', 'steelGrade', 'standardWeightKg', 'unitPrice', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'code', 'name', 'category', 'steelGrade', 'size', 'standard',
+        'standardWeightKg', 'unitPrice', 'hsnCode', 'uom', 'drawingNo',
+        'heatTreatmentReq', 'status', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == productId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      (!('code' in data) || (data.code is string && data.code.size() <= 64)) &&
+      data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+      data.category is string && data.category in ['Flanges', 'Rolled Rings', 'Forged Shafts', 'Gear Blanks', 'Custom Forgings'] &&
+      data.steelGrade is string && data.steelGrade.size() >= 2 && data.steelGrade.size() <= 64 &&
+      (!('size' in data) || (data.size is string && data.size.size() <= 120)) &&
+      (!('standard' in data) || (data.standard is string && data.standard.size() <= 120)) &&
+      data.standardWeightKg is number && data.standardWeightKg > 0 &&
+      data.unitPrice is number && data.unitPrice >= 0 &&
+      (!('hsnCode' in data) || (data.hsnCode is string && data.hsnCode.size() <= 32)) &&
+      (!('uom' in data) || (data.uom is string && data.uom.size() <= 24)) &&
+      (!('drawingNo' in data) || (data.drawingNo is string && data.drawingNo.size() <= 80)) &&
+      (!('heatTreatmentReq' in data) || (data.heatTreatmentReq is string && data.heatTreatmentReq.size() <= 120)) &&
+      data.status is string && data.status in ['Active', 'Discontinued'] &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.5 OrderJourney (/salesOrders/{orderId})
+    function isValidSalesOrder(data, orderId) {
+      return data.keys().hasAll([
+        'orderId', 'customerName', 'productName', 'steelGrade', 'quantityMT',
+        'totalValueINR', 'orderDate', 'committedDeliveryDate', 'currentStage',
+        'overallStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'orderId', 'customerId', 'customerName', 'productId', 'productName',
+        'steelGrade', 'quantityMT', 'totalValueINR', 'orderDate', 'committedDeliveryDate',
+        'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo',
+        'mtcStatus', 'dispatchStatus', 'invoiceNo', 'paymentStatus', 'stages',
+        'fprUid', 'fprName', 'fprDepartment', 'handoverStage', 'documentChecklistStatus',
+        'creditHoldOverrideBy', 'creditHoldOverrideReason',
+        'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.orderId is string && data.orderId == orderId && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 160 &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      data.quantityMT is number && data.quantityMT > 0 &&
+      data.totalValueINR is number && data.totalValueINR >= 0 &&
+      data.orderDate is string && data.orderDate.size() >= 4 && data.orderDate.size() <= 40 &&
+      data.committedDeliveryDate is string && data.committedDeliveryDate.size() >= 4 && data.committedDeliveryDate.size() <= 40 &&
+      data.currentStage is string && data.currentStage in [
+        'Inquiry', 'Order Confirmed', 'Raw Material Allocated', 'Forging',
+        'Heat Treatment', 'Machining', 'Quality Inspection', 'Ready for Dispatch',
+        'Dispatched', 'Invoiced'
+      ] &&
+      data.overallStatus is string && data.overallStatus in [
+        'On Track', 'At Risk', 'Delayed', 'Completed', 'Cancelled'
+      ] &&
+      (!('delayDays' in data) || (data.delayDays is number && data.delayDays >= 0)) &&
+      (!('delayReason' in data) || (data.delayReason is string && data.delayReason.size() <= 400)) &&
+      (!('heatNo' in data) || (data.heatNo is string && data.heatNo.size() <= 64)) &&
+      (!('mtcStatus' in data) || (data.mtcStatus is string && data.mtcStatus in ['Pending', 'Generated', 'Verified'])) &&
+      (!('dispatchStatus' in data) || (data.dispatchStatus is string && data.dispatchStatus in ['Not Started', 'Partial', 'Dispatched', 'Delivered'])) &&
+      (!('invoiceNo' in data) || (data.invoiceNo is string && data.invoiceNo.size() <= 64)) &&
+      (!('paymentStatus' in data) || (data.paymentStatus is string && data.paymentStatus in ['Unbilled', 'Pending', 'Partially Paid', 'Paid', 'Overdue'])) &&
+      (!('stages' in data) || (data.stages is list && data.stages.size() <= 12 && (data.stages.size() == 0 || data.stages[0] is map))) &&
+      (!('fprUid' in data) || (data.fprUid is string && data.fprUid.size() <= 128)) &&
+      (!('fprName' in data) || (data.fprName is string && data.fprName.size() <= 120)) &&
+      (!('fprDepartment' in data) || (data.fprDepartment is string && data.fprDepartment.size() <= 80)) &&
+      (!('handoverStage' in data) || (data.handoverStage is string && data.handoverStage in ['H-1', 'H-2', 'H-3', 'H-4', 'H-5'])) &&
+      (!('documentChecklistStatus' in data) || (data.documentChecklistStatus is string && data.documentChecklistStatus in ['Incomplete', 'Ready', 'Verified'])) &&
+      (!('creditHoldOverrideBy' in data) || (data.creditHoldOverrideBy is string && data.creditHoldOverrideBy.size() <= 120)) &&
+      (!('creditHoldOverrideReason' in data) || (data.creditHoldOverrideReason is string && data.creditHoldOverrideReason.size() <= 400)) &&
+      (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.6 DispatchConsignmentRecord (/dispatches/{dispatchId})
+    function isValidDispatch(data, dispatchId) {
+      return data.keys().hasAll([
+        'id', 'orderId', 'customerName', 'quantityTons', 'dispatchDate', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'orderId', 'customerName', 'productName', 'quantityTons', 'dispatchDate',
+        'transporterName', 'vehicleNo', 'lrNo', 'invoiceNo', 'destination', 'status',
+        'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == dispatchId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      isValidId(data.orderId) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      (!('productName' in data) || (data.productName is string && data.productName.size() <= 160)) &&
+      data.quantityTons is number && data.quantityTons > 0 &&
+      data.dispatchDate is string && data.dispatchDate.size() >= 4 && data.dispatchDate.size() <= 40 &&
+      (!('transporterName' in data) || (data.transporterName is string && data.transporterName.size() <= 120)) &&
+      (!('vehicleNo' in data) || (data.vehicleNo is string && data.vehicleNo.size() <= 40)) &&
+      (!('lrNo' in data) || (data.lrNo is string && data.lrNo.size() <= 64)) &&
+      (!('invoiceNo' in data) || (data.invoiceNo is string && data.invoiceNo.size() <= 64)) &&
+      (!('destination' in data) || (data.destination is string && data.destination.size() <= 160)) &&
+      data.status is string && data.status in ['Scheduled', 'Loading', 'In Transit', 'Delivered', 'Delayed'] &&
+      (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.7 RawMaterialStock (/rawMaterials/{materialId})
+    function isValidRawMaterial(data, materialId) {
+      return data.keys().hasAll([
+        'gradeId', 'steelGrade', 'availableMT', 'reorderLevelMT', 'status', 'lastUpdated'
+      ]) &&
+      data.keys().hasOnly([
+        'gradeId', 'steelGrade', 'category', 'availableMT', 'allocatedMT',
+        'reorderLevelMT', 'unitCostPerMT', 'supplierName', 'heatBatchNo',
+        'locationYard', 'status', 'lastUpdated', 'updatedBy', 'dataOrigin'
+      ]) &&
+      data.gradeId is string && data.gradeId == materialId && data.gradeId.size() >= 1 && data.gradeId.size() <= 128 &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      (!('category' in data) || (data.category is string && data.category in ['Carbon Steel', 'Alloy Steel', 'Stainless Steel', 'Tool Steel', 'Duplex Steel'])) &&
+      data.availableMT is number && data.availableMT >= 0 &&
+      (!('allocatedMT' in data) || (data.allocatedMT is number && data.allocatedMT >= 0)) &&
+      data.reorderLevelMT is number && data.reorderLevelMT >= 0 &&
+      (!('unitCostPerMT' in data) || (data.unitCostPerMT is number && data.unitCostPerMT >= 0)) &&
+      (!('supplierName' in data) || (data.supplierName is string && data.supplierName.size() <= 160)) &&
+      (!('heatBatchNo' in data) || (data.heatBatchNo is string && data.heatBatchNo.size() <= 64)) &&
+      (!('locationYard' in data) || (data.locationYard is string && data.locationYard.size() <= 80)) &&
+      data.status is string && data.status in ['Healthy', 'Low Stock', 'Critical'] &&
+      data.lastUpdated is string && data.lastUpdated.size() >= 4 && data.lastUpdated.size() <= 40 &&
+      (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.8 StockMovement (/stockMovements/{movementId})
+    function isValidStockMovement(data, movementId) {
+      return data.keys().hasAll([
+        'id', 'gradeId', 'steelGrade', 'type', 'quantityTons', 'performedBy', 'timestamp'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'gradeId', 'steelGrade', 'type', 'quantityTons', 'heatNumber',
+        'referenceDocument', 'orderId', 'performedBy', 'performedByUid',
+        'timestamp', 'remarks', 'balanceAfterMT', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == movementId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      isValidId(data.gradeId) &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      data.type is string && data.type in ['INWARD', 'ISSUE', 'RETURN', 'ADJUSTMENT'] &&
+      data.quantityTons is number && data.quantityTons > 0 &&
+      (!('heatNumber' in data) || (data.heatNumber is string && data.heatNumber.size() <= 64)) &&
+      (!('referenceDocument' in data) || (data.referenceDocument is string && data.referenceDocument.size() <= 120)) &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      data.performedBy is string && data.performedBy.size() >= 2 && data.performedBy.size() <= 160 &&
+      (!('performedByUid' in data) || (data.performedByUid is string && data.performedByUid == request.auth.uid && data.performedByUid.size() <= 128)) &&
+      data.timestamp is string && data.timestamp.size() >= 4 && data.timestamp.size() <= 40 &&
+      (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 400)) &&
+      (!('balanceAfterMT' in data) || (data.balanceAfterMT is number && data.balanceAfterMT >= 0)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.9 QualityInspectionRecord (/qualityInspections/{inspectionId})
+    function isValidQualityInspection(data, inspectionId) {
+      return data.keys().hasAll([
+        'id', 'batchId', 'orderId', 'inspectedQtyMT', 'acceptedQtyMT',
+        'rejectedQtyMT', 'status', 'inspectionDate', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'batchId', 'orderId', 'productName', 'steelGrade', 'heatNo',
+        'inspectedQtyMT', 'acceptedQtyMT', 'rejectedQtyMT', 'reworkQtyMT',
+        'rejectionReason', 'ndtStatus', 'hardnessHBW', 'mtcNumber',
+        'inspectorName', 'inspectionDate', 'status', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == inspectionId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.batchId is string && data.batchId.size() >= 1 && data.batchId.size() <= 80 &&
+      isValidId(data.orderId) &&
+      (!('productName' in data) || (data.productName is string && data.productName.size() <= 160)) &&
+      (!('steelGrade' in data) || (data.steelGrade is string && data.steelGrade.size() <= 64)) &&
+      (!('heatNo' in data) || (data.heatNo is string && data.heatNo.size() <= 64)) &&
+      data.inspectedQtyMT is number && data.inspectedQtyMT > 0 &&
+      data.acceptedQtyMT is number && data.acceptedQtyMT >= 0 &&
+      data.rejectedQtyMT is number && data.rejectedQtyMT >= 0 &&
+      (!('reworkQtyMT' in data) || (data.reworkQtyMT is number && data.reworkQtyMT >= 0)) &&
+      (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 300)) &&
+      (!('ndtStatus' in data) || (data.ndtStatus is string && data.ndtStatus in ['Passed', 'Failed', 'Pending'])) &&
+      (!('hardnessHBW' in data) || (data.hardnessHBW is string && data.hardnessHBW.size() <= 40)) &&
+      (!('mtcNumber' in data) || (data.mtcNumber is string && data.mtcNumber.size() <= 80)) &&
+      (!('inspectorName' in data) || (data.inspectorName is string && data.inspectorName.size() <= 120)) &&
+      data.inspectionDate is string && data.inspectionDate.size() >= 4 && data.inspectionDate.size() <= 40 &&
+      data.status is string && data.status in ['Approved', 'Rejected', 'Hold', 'Rework'] &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.10 OutstandingAgeingRecord (/outstandingPayments/{paymentId})
+    function isValidOutstandingPayment(data, paymentId) {
+      return data.keys().hasAll([
+        'invoiceId', 'customerName', 'invoiceDate', 'dueDate', 'invoiceAmountINR',
+        'receivedAmountINR', 'balanceAmountINR', 'ageingBucket', 'status', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'invoiceId', 'orderId', 'customerId', 'customerName', 'invoiceDate',
+        'dueDate', 'invoiceAmountINR', 'receivedAmountINR', 'balanceAmountINR',
+        'daysOverdue', 'ageingBucket', 'status', 'lastFollowUpDate', 'remarks',
+        'updatedBy', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.invoiceId is string && data.invoiceId == paymentId && data.invoiceId.size() >= 1 && data.invoiceId.size() <= 128 &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      data.invoiceDate is string && data.invoiceDate.size() >= 4 && data.invoiceDate.size() <= 40 &&
+      data.dueDate is string && data.dueDate.size() >= 4 && data.dueDate.size() <= 40 &&
+      data.invoiceAmountINR is number && data.invoiceAmountINR >= 0 &&
+      data.receivedAmountINR is number && data.receivedAmountINR >= 0 &&
+      data.balanceAmountINR is number && data.balanceAmountINR >= 0 &&
+      (!('daysOverdue' in data) || (data.daysOverdue is number && data.daysOverdue >= 0)) &&
+      data.ageingBucket is string && data.ageingBucket in ['0-30 Days', '31-60 Days', '61-90 Days', '90+ Days'] &&
+      data.status is string && data.status in ['Current', 'Due Soon', 'Overdue', 'Critical Overdue', 'Paid'] &&
+      (!('lastFollowUpDate' in data) || (data.lastFollowUpDate is string && data.lastFollowUpDate.size() <= 40)) &&
+      (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 400)) &&
+      (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128)) &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.11 ActionQueueItem (/actionQueue/{actionId})
+    function isValidActionQueueItem(data, actionId) {
+      return data.keys().hasAll([
+        'id', 'category', 'severity', 'title', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'category', 'severity', 'title', 'description', 'entityRef',
+        'assignedRole', 'status', 'acknowledgedBy', 'acknowledgedAt',
+        'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == actionId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.category is string && data.category in ['Inventory', 'Production', 'Quality', 'Finance', 'Dispatch', 'Maintenance'] &&
+      data.severity is string && data.severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] &&
+      data.title is string && data.title.size() >= 3 && data.title.size() <= 200 &&
+      (!('description' in data) || (data.description is string && data.description.size() <= 600)) &&
+      (!('entityRef' in data) || (data.entityRef is string && data.entityRef.size() <= 128)) &&
+      (!('assignedRole' in data) || isValidRoleValue(data.assignedRole)) &&
+      data.status is string && data.status in ['OPEN', 'ACKNOWLEDGED', 'RESOLVED'] &&
+      (!('acknowledgedBy' in data) || (data.acknowledgedBy is string && data.acknowledgedBy.size() <= 160)) &&
+      (!('acknowledgedAt' in data) || (data.acknowledgedAt is string && data.acknowledgedAt.size() <= 40)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.12 AuditLogEntry (/auditLogs/{logId})
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll([
+        'id', 'timestamp', 'actorUid', 'actorRole', 'action', 'module', 'details'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'timestamp', 'actorUid', 'actorEmail', 'actorName', 'actorRole',
+        'targetUid', 'userId', 'userName', 'action', 'module', 'collectionName',
+        'entityId', 'documentId', 'oldValueSummary', 'newValueSummary',
+        'details', 'severity', 'outcome', 'ipAddress', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == logId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.timestamp is string && data.timestamp.size() >= 4 && data.timestamp.size() <= 40 &&
+      data.actorUid is string && data.actorUid == request.auth.uid && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+      (!('userId' in data) || (data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128)) &&
+      (!('targetUid' in data) || (data.targetUid is string && data.targetUid.size() <= 128)) &&
+      (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 160)) &&
+      (!('actorName' in data) || (data.actorName is string && data.actorName.size() <= 120)) &&
+      (!('userName' in data) || (data.userName is string && data.userName.size() <= 160)) &&
+      isValidRoleValue(data.actorRole) &&
+      data.action is string && data.action.size() >= 2 && data.action.size() <= 120 &&
+      data.module is string && data.module.size() >= 2 && data.module.size() <= 80 &&
+      (!('collectionName' in data) || (data.collectionName is string && data.collectionName.size() <= 80)) &&
+      (!('entityId' in data) || (data.entityId is string && data.entityId.size() <= 128)) &&
+      (!('documentId' in data) || (data.documentId is string && data.documentId.size() <= 128)) &&
+      (!('oldValueSummary' in data) || (data.oldValueSummary is string && data.oldValueSummary.size() <= 500)) &&
+      (!('newValueSummary' in data) || (data.newValueSummary is string && data.newValueSummary.size() <= 1000)) &&
+      data.details is string && data.details.size() >= 2 && data.details.size() <= 1000 &&
+      (!('severity' in data) || (data.severity is string && data.severity in ['INFO', 'WARNING', 'CRITICAL'])) &&
+      (!('outcome' in data) || (data.outcome is string && data.outcome in ['SUCCESS', 'PARTIAL_FAILURE', 'DENIED'])) &&
+      (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 120)) &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.13 QuotationRecord (/quotations/{quotationId})
+    function isValidQuotation(data, quotationId) {
+      return data.keys().hasAll([
+        'id', 'quoteNo', 'customerName', 'productName', 'steelGrade',
+        'quantityMT', 'totalValueINR', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'quoteNo', 'customerId', 'customerName', 'contactPerson',
+        'productId', 'productName', 'steelGrade', 'quantityMT', 'quotedRatePerKg',
+        'totalValueINR', 'validUntil', 'status', 'preparedBy', 'followUpNotes',
+        'nextFollowUpDate', 'convertedOrderId', 'inquiryQtyPcs', 'unitWeightKg',
+        'quotedRatePerPc', 'estimatedMarginPercent', 'deliveryLeadWeeks', 'isRepeatOrder',
+        'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == quotationId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.quoteNo is string && data.quoteNo.size() >= 2 && data.quoteNo.size() <= 64 &&
+      (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      (!('contactPerson' in data) || (data.contactPerson is string && data.contactPerson.size() <= 120)) &&
+      (!('productId' in data) || (data.productId is string && data.productId.size() <= 128)) &&
+      data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 160 &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      data.quantityMT is number && data.quantityMT > 0 &&
+      (!('quotedRatePerKg' in data) || (data.quotedRatePerKg is number && data.quotedRatePerKg >= 0)) &&
+      data.totalValueINR is number && data.totalValueINR >= 0 &&
+      (!('validUntil' in data) || (data.validUntil is string && data.validUntil.size() <= 40)) &&
+      data.status is string && data.status in ['Draft', 'Sent', 'Under Negotiation', 'Won', 'Lost', 'Expired'] &&
+      (!('preparedBy' in data) || (data.preparedBy is string && data.preparedBy.size() <= 120)) &&
+      (!('followUpNotes' in data) || (data.followUpNotes is string && data.followUpNotes.size() <= 600)) &&
+      (!('nextFollowUpDate' in data) || (data.nextFollowUpDate is string && data.nextFollowUpDate.size() <= 40)) &&
+      (!('convertedOrderId' in data) || (data.convertedOrderId is string && data.convertedOrderId.size() <= 128)) &&
+      (!('inquiryQtyPcs' in data) || (data.inquiryQtyPcs is number && data.inquiryQtyPcs >= 0)) &&
+      (!('unitWeightKg' in data) || (data.unitWeightKg is number && data.unitWeightKg >= 0)) &&
+      (!('quotedRatePerPc' in data) || (data.quotedRatePerPc is number && data.quotedRatePerPc >= 0)) &&
+      (!('estimatedMarginPercent' in data) || (data.estimatedMarginPercent is number)) &&
+      (!('deliveryLeadWeeks' in data) || (data.deliveryLeadWeeks is number && data.deliveryLeadWeeks >= 0)) &&
+      (!('isRepeatOrder' in data) || data.isRepeatOrder is bool) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.14 TenderRecord (/tenders/{tenderId})
+    function isValidTender(data, tenderId) {
+      return data.keys().hasAll([
+        'id', 'tenderNo', 'issuingAuthority', 'projectTitle', 'estimatedValueINR',
+        'submissionDeadline', 'technicalBidStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'tenderNo', 'issuingAuthority', 'projectTitle', 'estimatedValueINR',
+        'emdAmountINR', 'submissionDeadline', 'technicalBidStatus', 'ownerName',
+        'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == tenderId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.tenderNo is string && data.tenderNo.size() >= 2 && data.tenderNo.size() <= 80 &&
+      data.issuingAuthority is string && data.issuingAuthority.size() >= 2 && data.issuingAuthority.size() <= 160 &&
+      data.projectTitle is string && data.projectTitle.size() >= 2 && data.projectTitle.size() <= 200 &&
+      data.estimatedValueINR is number && data.estimatedValueINR >= 0 &&
+      (!('emdAmountINR' in data) || (data.emdAmountINR is number && data.emdAmountINR >= 0)) &&
+      data.submissionDeadline is string && data.submissionDeadline.size() >= 4 && data.submissionDeadline.size() <= 40 &&
+      data.technicalBidStatus is string && data.technicalBidStatus in ['Preparing', 'Submitted', 'Qualified', 'Disqualified', 'Awarded', 'Lost'] &&
+      (!('ownerName' in data) || (data.ownerName is string && data.ownerName.size() <= 120)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.15 SteelMillSupplier (/suppliers/{supplierId})
+    function isValidSupplier(data, supplierId) {
+      return data.keys().hasAll([
+        'id', 'name', 'leadTimeDays', 'approvalStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'name', 'location', 'primaryGrades', 'leadTimeDays', 'qualityRating',
+        'onTimeDeliveryPct', 'approvalStatus', 'contactEmail', 'createdAt',
+        'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == supplierId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+      (!('location' in data) || (data.location is string && data.location.size() <= 120)) &&
+      (!('primaryGrades' in data) || (data.primaryGrades is list && data.primaryGrades.size() <= 20 && (data.primaryGrades.size() == 0 || data.primaryGrades[0] is string))) &&
+      data.leadTimeDays is number && data.leadTimeDays >= 0 &&
+      (!('qualityRating' in data) || (data.qualityRating is number && data.qualityRating >= 0 && data.qualityRating <= 5)) &&
+      (!('onTimeDeliveryPct' in data) || (data.onTimeDeliveryPct is number && data.onTimeDeliveryPct >= 0 && data.onTimeDeliveryPct <= 100)) &&
+      data.approvalStatus is string && data.approvalStatus in ['Approved', 'Probation', 'Suspended'] &&
+      (!('contactEmail' in data) || (data.contactEmail is string && data.contactEmail.size() <= 160)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.16 PurchaseOrderRecord (/purchaseOrders/{poId})
+    function isValidPurchaseOrder(data, poId) {
+      return data.keys().hasAll([
+        'id', 'poNumber', 'supplierName', 'steelGrade', 'orderedMT', 'ratePerMT',
+        'totalAmountINR', 'expectedDeliveryDate', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'poNumber', 'supplierId', 'supplierName', 'steelGrade', 'orderedMT',
+        'receivedMT', 'ratePerMT', 'totalAmountINR', 'orderDate',
+        'expectedDeliveryDate', 'status', 'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == poId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.poNumber is string && data.poNumber.size() >= 2 && data.poNumber.size() <= 64 &&
+      (!('supplierId' in data) || (data.supplierId is string && data.supplierId.size() <= 128)) &&
+      data.supplierName is string && data.supplierName.size() >= 2 && data.supplierName.size() <= 160 &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      data.orderedMT is number && data.orderedMT > 0 &&
+      (!('receivedMT' in data) || (data.receivedMT is number && data.receivedMT >= 0)) &&
+      data.ratePerMT is number && data.ratePerMT >= 0 &&
+      data.totalAmountINR is number && data.totalAmountINR >= 0 &&
+      (!('orderDate' in data) || (data.orderDate is string && data.orderDate.size() <= 40)) &&
+      data.expectedDeliveryDate is string && data.expectedDeliveryDate.size() >= 4 && data.expectedDeliveryDate.size() <= 40 &&
+      data.status is string && data.status in ['Draft', 'Issued', 'In Transit', 'Partially Received', 'Received', 'Cancelled'] &&
+      (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.17 ShopMachineLog (/machineLogs/{logId})
+    function isValidMachineLog(data, logId) {
+      return data.keys().hasAll([
+        'id', 'machineId', 'machineName', 'shift', 'operationType', 'outputTons',
+        'status', 'loggedAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'machineId', 'machineName', 'shift', 'operatorName', 'orderId',
+        'operationType', 'outputTons', 'utilizationPct', 'downtimeMinutes',
+        'status', 'loggedAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == logId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.machineId is string && data.machineId.size() >= 1 && data.machineId.size() <= 64 &&
+      data.machineName is string && data.machineName.size() >= 2 && data.machineName.size() <= 120 &&
+      data.shift is string && data.shift in ['Shift A', 'Shift B', 'Shift C'] &&
+      (!('operatorName' in data) || (data.operatorName is string && data.operatorName.size() <= 120)) &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      data.operationType is string && data.operationType in ['Open Die Forging', 'Ring Rolling', 'Closed Die Hammer', 'CNC Turning', 'Band Saw Cutting'] &&
+      data.outputTons is number && data.outputTons >= 0 &&
+      (!('utilizationPct' in data) || (data.utilizationPct is number && data.utilizationPct >= 0 && data.utilizationPct <= 100)) &&
+      (!('downtimeMinutes' in data) || (data.downtimeMinutes is number && data.downtimeMinutes >= 0)) &&
+      data.status is string && data.status in ['Running', 'Setup', 'Idle', 'Breakdown', 'Maintenance'] &&
+      data.loggedAt is string && data.loggedAt.size() >= 4 && data.loggedAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.18 FurnaceBatchLog (/furnaceLogs/{logId})
+    function isValidFurnaceLog(data, logId) {
+      return data.keys().hasAll([
+        'id', 'furnaceId', 'batchNo', 'cycleType', 'targetTempC', 'chargeWeightMT',
+        'status', 'startedAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'furnaceId', 'batchNo', 'orderId', 'steelGrade', 'cycleType',
+        'targetTempC', 'soakTimeHours', 'chargeWeightMT', 'fuelConsumedSCM',
+        'status', 'startedAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == logId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.furnaceId is string && data.furnaceId.size() >= 1 && data.furnaceId.size() <= 64 &&
+      data.batchNo is string && data.batchNo.size() >= 1 && data.batchNo.size() <= 64 &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      (!('steelGrade' in data) || (data.steelGrade is string && data.steelGrade.size() <= 64)) &&
+      data.cycleType is string && data.cycleType in ['Reheating', 'Normalizing', 'Annealing', 'Quenching & Tempering', 'Stress Relieving'] &&
+      data.targetTempC is number && data.targetTempC > 0 &&
+      (!('soakTimeHours' in data) || (data.soakTimeHours is number && data.soakTimeHours >= 0)) &&
+      data.chargeWeightMT is number && data.chargeWeightMT > 0 &&
+      (!('fuelConsumedSCM' in data) || (data.fuelConsumedSCM is number && data.fuelConsumedSCM >= 0)) &&
+      data.status is string && data.status in ['Charging', 'Heating', 'Soaking', 'Cooling', 'Completed', 'Aborted'] &&
+      data.startedAt is string && data.startedAt.size() >= 4 && data.startedAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.19 MachineMaintenanceTicket (/maintenanceTickets/{ticketId})
+    function isValidMaintenanceTicket(data, ticketId) {
+      return data.keys().hasAll([
+        'id', 'ticketNo', 'machineId', 'machineName', 'maintenanceType',
+        'priority', 'issueDescription', 'status', 'reportedAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'ticketNo', 'machineId', 'machineName', 'maintenanceType',
+        'priority', 'issueDescription', 'assignedTechnician',
+        'estimatedDowntimeHours', 'status', 'reportedAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == ticketId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.ticketNo is string && data.ticketNo.size() >= 2 && data.ticketNo.size() <= 64 &&
+      data.machineId is string && data.machineId.size() >= 1 && data.machineId.size() <= 64 &&
+      data.machineName is string && data.machineName.size() >= 2 && data.machineName.size() <= 120 &&
+      data.maintenanceType is string && data.maintenanceType in ['Preventive', 'Breakdown', 'Hydraulic Seal', 'Die Change', 'Calibration'] &&
+      data.priority is string && data.priority in ['Critical', 'High', 'Medium', 'Low'] &&
+      data.issueDescription is string && data.issueDescription.size() >= 3 && data.issueDescription.size() <= 500 &&
+      (!('assignedTechnician' in data) || (data.assignedTechnician is string && data.assignedTechnician.size() <= 120)) &&
+      (!('estimatedDowntimeHours' in data) || (data.estimatedDowntimeHours is number && data.estimatedDowntimeHours >= 0)) &&
+      data.status is string && data.status in ['Open', 'In Progress', 'Awaiting Spares', 'Resolved', 'Closed'] &&
+      data.reportedAt is string && data.reportedAt.size() >= 4 && data.reportedAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.20 PowerConsumptionLog (/powerLogs/{logId})
+    function isValidPowerLog(data, logId) {
+      return data.keys().hasAll([
+        'id', 'logDate', 'shift', 'electricityKwh', 'productionOutputMT',
+        'kwhPerMT', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'logDate', 'shift', 'electricityKwh', 'pngGasSCM',
+        'productionOutputMT', 'kwhPerMT', 'powerFactor', 'peakDemandKva',
+        'loggedBy', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == logId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.logDate is string && data.logDate.size() >= 4 && data.logDate.size() <= 40 &&
+      data.shift is string && data.shift in ['Shift A', 'Shift B', 'Shift C', 'Full Day'] &&
+      data.electricityKwh is number && data.electricityKwh >= 0 &&
+      (!('pngGasSCM' in data) || (data.pngGasSCM is number && data.pngGasSCM >= 0)) &&
+      data.productionOutputMT is number && data.productionOutputMT >= 0 &&
+      data.kwhPerMT is number && data.kwhPerMT >= 0 &&
+      (!('powerFactor' in data) || (data.powerFactor is number && data.powerFactor >= 0 && data.powerFactor <= 1)) &&
+      (!('peakDemandKva' in data) || (data.peakDemandKva is number && data.peakDemandKva >= 0)) &&
+      (!('loggedBy' in data) || (data.loggedBy is string && data.loggedBy.size() <= 120)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.21 DimensionalInspectionReport (/dimensionalReports/{reportId})
+    function isValidDimensionalReport(data, reportId) {
+      return data.keys().hasAll([
+        'id', 'reportNo', 'orderId', 'outerDiaNominalMm', 'outerDiaObservedMm',
+        'toleranceResult', 'inspectedAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'reportNo', 'orderId', 'batchId', 'drawingNo',
+        'outerDiaNominalMm', 'outerDiaObservedMm', 'innerDiaNominalMm',
+        'innerDiaObservedMm', 'heightNominalMm', 'heightObservedMm',
+        'deviationMm', 'toleranceResult', 'inspectorName', 'inspectedAt',
+        'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == reportId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.reportNo is string && data.reportNo.size() >= 2 && data.reportNo.size() <= 64 &&
+      isValidId(data.orderId) &&
+      (!('batchId' in data) || (data.batchId is string && data.batchId.size() <= 80)) &&
+      (!('drawingNo' in data) || (data.drawingNo is string && data.drawingNo.size() <= 80)) &&
+      data.outerDiaNominalMm is number && data.outerDiaNominalMm > 0 &&
+      data.outerDiaObservedMm is number && data.outerDiaObservedMm > 0 &&
+      (!('innerDiaNominalMm' in data) || (data.innerDiaNominalMm is number && data.innerDiaNominalMm >= 0)) &&
+      (!('innerDiaObservedMm' in data) || (data.innerDiaObservedMm is number && data.innerDiaObservedMm >= 0)) &&
+      (!('heightNominalMm' in data) || (data.heightNominalMm is number && data.heightNominalMm >= 0)) &&
+      (!('heightObservedMm' in data) || (data.heightObservedMm is number && data.heightObservedMm >= 0)) &&
+      (!('deviationMm' in data) || data.deviationMm is number) &&
+      data.toleranceResult is string && data.toleranceResult in ['Within Tolerance', 'Minor Deviation', 'Out of Tolerance'] &&
+      (!('inspectorName' in data) || (data.inspectorName is string && data.inspectorName.size() <= 120)) &&
+      data.inspectedAt is string && data.inspectedAt.size() >= 4 && data.inspectedAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.22 JobCostSheet (/jobCostSheets/{costSheetId})
+    function isValidJobCostSheet(data, costSheetId) {
+      return data.keys().hasAll([
+        'id', 'orderId', 'customerName', 'rawMaterialCostINR',
+        'forgingConversionCostINR', 'totalActualCostINR', 'salesRealizationINR',
+        'grossMarginPct', 'costStatus', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'orderId', 'customerName', 'productName', 'rawMaterialCostINR',
+        'forgingConversionCostINR', 'heatTreatmentCostINR', 'machiningCostINR',
+        'testingAndMtcCostINR', 'totalActualCostINR', 'salesRealizationINR',
+        'grossMarginINR', 'grossMarginPct', 'costStatus', 'updatedBy',
+        'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == costSheetId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      isValidId(data.orderId) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      (!('productName' in data) || (data.productName is string && data.productName.size() <= 160)) &&
+      data.rawMaterialCostINR is number && data.rawMaterialCostINR >= 0 &&
+      data.forgingConversionCostINR is number && data.forgingConversionCostINR >= 0 &&
+      (!('heatTreatmentCostINR' in data) || (data.heatTreatmentCostINR is number && data.heatTreatmentCostINR >= 0)) &&
+      (!('machiningCostINR' in data) || (data.machiningCostINR is number && data.machiningCostINR >= 0)) &&
+      (!('testingAndMtcCostINR' in data) || (data.testingAndMtcCostINR is number && data.testingAndMtcCostINR >= 0)) &&
+      data.totalActualCostINR is number && data.totalActualCostINR >= 0 &&
+      data.salesRealizationINR is number && data.salesRealizationINR >= 0 &&
+      (!('grossMarginINR' in data) || data.grossMarginINR is number) &&
+      data.grossMarginPct is number &&
+      data.costStatus is string && data.costStatus in ['Draft', 'Provisional', 'Finalized'] &&
+      (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128)) &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.23 TaskRecord (/tasks/{taskId})
+    function isValidTaskRecord(data, taskId) {
+      return data.keys().hasAll([
+        'id', 'taskNo', 'title', 'department', 'assignedRole', 'assignedToUid',
+        'assignedToName', 'priority', 'status', 'dueDate', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'taskNo', 'title', 'description', 'department', 'assignedRole',
+        'assignedToUid', 'assignedToName', 'assignedByUid', 'assignedByName',
+        'orderId', 'customerName', 'priority', 'status', 'dueDate', 'slaHours',
+        'submittedAt', 'submissionRemarks', 'verifiedByUid', 'verifiedByName',
+        'verifiedAt', 'verificationRemarks', 'rejectionReason', 'escalationLevel',
+        'escalatedAt', 'isSopDailyDuty', 'sopClauseRef', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == taskId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.taskNo is string && data.taskNo.size() >= 2 && data.taskNo.size() <= 64 &&
+      data.title is string && data.title.size() >= 3 && data.title.size() <= 240 &&
+      (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+      data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+      isValidRoleValue(data.assignedRole) &&
+      data.assignedToUid is string && data.assignedToUid.size() >= 1 && data.assignedToUid.size() <= 128 &&
+      data.assignedToName is string && data.assignedToName.size() >= 2 && data.assignedToName.size() <= 160 &&
+      (!('assignedByUid' in data) || (data.assignedByUid is string && data.assignedByUid.size() <= 128)) &&
+      (!('assignedByName' in data) || (data.assignedByName is string && data.assignedByName.size() <= 160)) &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 160)) &&
+      data.priority is string && data.priority in ['Critical', 'High', 'Medium', 'Low'] &&
+      data.status is string && data.status in [
+        'Pending', 'In Progress', 'Submitted for Verification',
+        'Verified & Approved', 'Rejected / Rework', 'Escalated'
+      ] &&
+      data.dueDate is string && data.dueDate.size() >= 4 && data.dueDate.size() <= 40 &&
+      (!('slaHours' in data) || (data.slaHours is number && data.slaHours >= 0)) &&
+      (!('submittedAt' in data) || (data.submittedAt is string && data.submittedAt.size() <= 40)) &&
+      (!('submissionRemarks' in data) || (data.submissionRemarks is string && data.submissionRemarks.size() <= 600)) &&
+      (!('verifiedByUid' in data) || (data.verifiedByUid is string && data.verifiedByUid.size() <= 128)) &&
+      (!('verifiedByName' in data) || (data.verifiedByName is string && data.verifiedByName.size() <= 160)) &&
+      (!('verifiedAt' in data) || (data.verifiedAt is string && data.verifiedAt.size() <= 40)) &&
+      (!('verificationRemarks' in data) || (data.verificationRemarks is string && data.verificationRemarks.size() <= 600)) &&
+      (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 600)) &&
+      (!('escalationLevel' in data) || (data.escalationLevel is string && data.escalationLevel in ['None', 'L1_DeptHead', 'L2_CEO'])) &&
+      (!('escalatedAt' in data) || (data.escalatedAt is string && data.escalatedAt.size() <= 40)) &&
+      (!('isSopDailyDuty' in data) || data.isSopDailyDuty is bool) &&
+      (!('sopClauseRef' in data) || (data.sopClauseRef is string && data.sopClauseRef.size() <= 80)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.24 HandoverRecord (/handovers/{handoverId})
+    function isValidHandoverRecord(data, handoverId) {
+      return data.keys().hasAll([
+        'id', 'handoverCode', 'orderId', 'customerName', 'productName',
+        'fromDepartment', 'fromRole', 'fromUid', 'fromUserName',
+        'toDepartment', 'toRole', 'status', 'initiatedAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'handoverCode', 'orderId', 'customerName', 'productName',
+        'fromDepartment', 'fromRole', 'fromUid', 'fromUserName',
+        'toDepartment', 'toRole', 'toUid', 'toUserName', 'quantityMT',
+        'heatNo', 'checklistSummary', 'status', 'initiatedAt', 'respondedAt',
+        'remarks', 'rejectionReason', 'slaDeadline', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == handoverId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.handoverCode is string && data.handoverCode in ['H-1', 'H-2', 'H-3', 'H-4', 'H-5'] &&
+      isValidId(data.orderId) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 160 &&
+      data.fromDepartment is string && data.fromDepartment.size() >= 2 && data.fromDepartment.size() <= 80 &&
+      isValidRoleValue(data.fromRole) &&
+      data.fromUid is string && data.fromUid.size() >= 1 && data.fromUid.size() <= 128 &&
+      data.fromUserName is string && data.fromUserName.size() >= 2 && data.fromUserName.size() <= 160 &&
+      data.toDepartment is string && data.toDepartment.size() >= 2 && data.toDepartment.size() <= 80 &&
+      isValidRoleValue(data.toRole) &&
+      (!('toUid' in data) || (data.toUid is string && data.toUid.size() <= 128)) &&
+      (!('toUserName' in data) || (data.toUserName is string && data.toUserName.size() <= 160)) &&
+      (!('quantityMT' in data) || (data.quantityMT is number && data.quantityMT >= 0)) &&
+      (!('heatNo' in data) || (data.heatNo is string && data.heatNo.size() <= 64)) &&
+      (!('checklistSummary' in data) || (data.checklistSummary is string && data.checklistSummary.size() <= 600)) &&
+      data.status is string && data.status in ['Pending Acceptance', 'Accepted', 'Rejected', 'Escalated'] &&
+      data.initiatedAt is string && data.initiatedAt.size() >= 4 && data.initiatedAt.size() <= 40 &&
+      (!('respondedAt' in data) || (data.respondedAt is string && data.respondedAt.size() <= 40)) &&
+      (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 600)) &&
+      (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 600)) &&
+      (!('slaDeadline' in data) || (data.slaDeadline is string && data.slaDeadline.size() <= 40)) &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.25 PurchaseRequisitionRecord (/purchaseRequisitions/{requisitionId})
+    function isValidPurchaseRequisition(data, requisitionId) {
+      return data.keys().hasAll([
+        'id', 'prNumber', 'steelGrade', 'requiredMT', 'requiredByDate',
+        'requestedByUid', 'requestedByName', 'requestedByRole',
+        'priority', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'prNumber', 'orderId', 'steelGrade', 'requiredMT',
+        'estimatedCostINR', 'requiredByDate', 'requestedByUid',
+        'requestedByName', 'requestedByRole', 'justification', 'priority',
+        'status', 'approvedByUid', 'approvedByName', 'approvedAt',
+        'rejectionReason', 'convertedPoNumber', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == requisitionId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.prNumber is string && data.prNumber.size() >= 2 && data.prNumber.size() <= 64 &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
+      data.requiredMT is number && data.requiredMT > 0 &&
+      (!('estimatedCostINR' in data) || (data.estimatedCostINR is number && data.estimatedCostINR >= 0)) &&
+      data.requiredByDate is string && data.requiredByDate.size() >= 4 && data.requiredByDate.size() <= 40 &&
+      data.requestedByUid is string && data.requestedByUid.size() >= 1 && data.requestedByUid.size() <= 128 &&
+      data.requestedByName is string && data.requestedByName.size() >= 2 && data.requestedByName.size() <= 160 &&
+      isValidRoleValue(data.requestedByRole) &&
+      (!('justification' in data) || (data.justification is string && data.justification.size() <= 600)) &&
+      data.priority is string && data.priority in ['Urgent', 'High', 'Normal'] &&
+      data.status is string && data.status in ['Draft', 'Pending Approval', 'Approved', 'Rejected', 'Converted to PO'] &&
+      (!('approvedByUid' in data) || (data.approvedByUid is string && data.approvedByUid.size() <= 128)) &&
+      (!('approvedByName' in data) || (data.approvedByName is string && data.approvedByName.size() <= 160)) &&
+      (!('approvedAt' in data) || (data.approvedAt is string && data.approvedAt.size() <= 40)) &&
+      (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 600)) &&
+      (!('convertedPoNumber' in data) || (data.convertedPoNumber is string && data.convertedPoNumber.size() <= 64)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.26 NcrCapaRecord (/ncrCapaRecords/{ncrId})
+    function isValidNcrCapaRecord(data, ncrId) {
+      return data.keys().hasAll([
+        'id', 'ncrNumber', 'orderId', 'batchId', 'defectCategory',
+        'defectDescription', 'affectedQtyMT', 'disposition', 'status',
+        'raisedByUid', 'raisedByName', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'ncrNumber', 'orderId', 'batchId', 'productName', 'steelGrade',
+        'heatNo', 'defectCategory', 'defectDescription', 'affectedQtyMT',
+        'rootCause', 'correctiveAction', 'preventiveAction', 'disposition',
+        'status', 'raisedByUid', 'raisedByName', 'verifiedByName', 'closedAt',
+        'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == ncrId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      data.ncrNumber is string && data.ncrNumber.size() >= 2 && data.ncrNumber.size() <= 64 &&
+      isValidId(data.orderId) &&
+      data.batchId is string && data.batchId.size() >= 1 && data.batchId.size() <= 80 &&
+      (!('productName' in data) || (data.productName is string && data.productName.size() <= 160)) &&
+      (!('steelGrade' in data) || (data.steelGrade is string && data.steelGrade.size() <= 64)) &&
+      (!('heatNo' in data) || (data.heatNo is string && data.heatNo.size() <= 64)) &&
+      data.defectCategory is string && data.defectCategory in ['Dimensional', 'Surface Crack', 'UT Indication', 'Hardness Deviation', 'Chemistry Mix', 'Machining Error'] &&
+      data.defectDescription is string && data.defectDescription.size() >= 3 && data.defectDescription.size() <= 600 &&
+      data.affectedQtyMT is number && data.affectedQtyMT > 0 &&
+      (!('rootCause' in data) || (data.rootCause is string && data.rootCause.size() <= 600)) &&
+      (!('correctiveAction' in data) || (data.correctiveAction is string && data.correctiveAction.size() <= 600)) &&
+      (!('preventiveAction' in data) || (data.preventiveAction is string && data.preventiveAction.size() <= 600)) &&
+      data.disposition is string && data.disposition in ['Rework', 'Scrap', 'Use As Is (Concession)', 'Hold'] &&
+      data.status is string && data.status in ['Open', 'Root Cause Analysis', 'CAPA Implemented', 'Verified & Closed'] &&
+      data.raisedByUid is string && data.raisedByUid.size() >= 1 && data.raisedByUid.size() <= 128 &&
+      data.raisedByName is string && data.raisedByName.size() >= 2 && data.raisedByName.size() <= 160 &&
+      (!('verifiedByName' in data) || (data.verifiedByName is string && data.verifiedByName.size() <= 160)) &&
+      (!('closedAt' in data) || (data.closedAt is string && data.closedAt.size() <= 40)) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // 2.27 PaymentFollowUpRecord (/paymentFollowUps/{followUpId})
+    function isValidPaymentFollowUp(data, followUpId) {
+      return data.keys().hasAll([
+        'id', 'invoiceId', 'customerName', 'contactPerson', 'followUpDate',
+        'nextFollowUpDate', 'followUpMode', 'outcome', 'loggedByUid',
+        'loggedByName', 'loggedByRole', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'invoiceId', 'orderId', 'customerId', 'customerName',
+        'contactPerson', 'followUpDate', 'nextFollowUpDate', 'promisedAmountINR',
+        'promisedDate', 'followUpMode', 'outcome', 'notes', 'loggedByUid',
+        'loggedByName', 'loggedByRole', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+      data.id is string && data.id == followUpId && data.id.size() >= 1 && data.id.size() <= 128 &&
+      isValidId(data.invoiceId) &&
+      (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
+      (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+      data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&
+      data.contactPerson is string && data.contactPerson.size() >= 2 && data.contactPerson.size() <= 120 &&
+      data.followUpDate is string && data.followUpDate.size() >= 4 && data.followUpDate.size() <= 40 &&
+      data.nextFollowUpDate is string && data.nextFollowUpDate.size() >= 4 && data.nextFollowUpDate.size() <= 40 &&
+      (!('promisedAmountINR' in data) || (data.promisedAmountINR is number && data.promisedAmountINR >= 0)) &&
+      (!('promisedDate' in data) || (data.promisedDate is string && data.promisedDate.size() <= 40)) &&
+      data.followUpMode is string && data.followUpMode in ['Phone Call', 'Email', 'WhatsApp', 'Executive Visit', 'Legal Notice'] &&
+      data.outcome is string && data.outcome in ['Payment Promised', 'Part Payment Released', 'Dispute Raised', 'No Response', 'Cleared'] &&
+      (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+      data.loggedByUid is string && data.loggedByUid.size() >= 1 && data.loggedByUid.size() <= 128 &&
+      data.loggedByName is string && data.loggedByName.size() >= 2 && data.loggedByName.size() <= 160 &&
+      isValidRoleValue(data.loggedByRole) &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
+    // =========================================================================
+    // 3. COLLECTION MATCH BLOCKS (ALL 27 COLLECTIONS)
+    // =========================================================================
+
+    // Collection 1: /users/{userId}
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (
+        (isOwner(userId) && (resource == null || existing().accountStatus in ['active', 'pending_approval', 'pending_invitation', 'pending_setup', 'rejected'])) ||
+        isSuperAdmin() ||
+        isCeo()
+      );
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo()) && existing().uid is string;
+      allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
+        (
+          isSuperAdmin() &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || incoming().approvedByUid == request.auth.uid) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || incoming().rejectedByUid == request.auth.uid)
+        ) ||
+        (
+          isCeo() &&
+          !isOwner(userId) &&
+          incoming().role != 'super_admin' &&
+          incoming().role != 'ceo' &&
+          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
+          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
+          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || incoming().approvedByUid == request.auth.uid) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || incoming().rejectedByUid == request.auth.uid)
+        ) ||
+        (isOwner(userId) && isBootstrapOwner() && !userProfileExists()) ||
+        (
+          isOwner(userId) &&
+          incoming().accountStatus == 'pending_approval' &&
+          incoming().role != 'super_admin' &&
+          incoming().role != 'ceo' &&
+          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
+          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
+          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
+          (!('isDepartmentHead' in incoming()) || incoming().isDepartmentHead == false) &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null) &&
+          (!('approvedByEmail' in incoming()) || incoming().approvedByEmail == null) &&
+          (!('approvedByName' in incoming()) || incoming().approvedByName == null) &&
+          (!('approvedAt' in incoming()) || incoming().approvedAt == null) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null) &&
+          (!('rejectedAt' in incoming()) || incoming().rejectedAt == null)
+        )
+      );
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
+        (
+          isSuperAdmin() &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || ('approvedByUid' in existing() && incoming().approvedByUid == existing().approvedByUid) || incoming().approvedByUid == request.auth.uid) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || ('rejectedByUid' in existing() && incoming().rejectedByUid == existing().rejectedByUid) || incoming().rejectedByUid == request.auth.uid)
+        ) ||
+        (
+          isCeo() &&
+          !isOwner(userId) &&
+          existing().role != 'super_admin' &&
+          existing().role != 'ceo' &&
+          (!('legacyRole' in existing()) || (existing().legacyRole != 'super_admin' && existing().legacyRole != 'ceo')) &&
+          (!('rbacGroup' in existing()) || (existing().rbacGroup != 'Admin' && existing().rbacGroup != 'Management')) &&
+          incoming().role != 'super_admin' &&
+          incoming().role != 'ceo' &&
+          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
+          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
+          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
+          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null || ('approvedByUid' in existing() && incoming().approvedByUid == existing().approvedByUid) || incoming().approvedByUid == request.auth.uid) &&
+          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null || ('rejectedByUid' in existing() && incoming().rejectedByUid == existing().rejectedByUid) || incoming().rejectedByUid == request.auth.uid)
+        ) ||
+        (
+          isOwner(userId) &&
+          isActiveUser() &&
+          incoming().uid == existing().uid &&
+          incoming().email == existing().email &&
+          incoming().role == existing().role &&
+          incoming().department == existing().department &&
+          incoming().accountStatus == existing().accountStatus &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['lastLogin', 'lastLoginAt', 'updatedAt', 'displayName', 'name', 'mustChangePassword'])
+        ) ||
+        (
+          isOwner(userId) &&
+          existing().accountStatus == 'pending_approval' &&
+          incoming().accountStatus == 'pending_approval' &&
+          incoming().uid == existing().uid &&
+          incoming().email == existing().email &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().role != 'super_admin' &&
+          incoming().role != 'ceo' &&
+          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
+          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
+          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
+          (!('isDepartmentHead' in incoming()) || incoming().isDepartmentHead == false) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'name', 'department', 'requestedDepartment', 'role', 'legacyRole', 'requestedRole', 'rbacGroup', 'designation', 'roleTitle', 'avatarInitials', 'approvalHistory', 'updatedAt'])
+        )
+      );
+      allow delete: if isSignedIn() && isValidId(userId) && isSuperAdmin() && request.auth.uid != userId;
+    }
+
+    // Collection 2: /systemConfig/{configId}
+    match /systemConfig/{configId} {
+      allow get: if isActiveUser() && isValidId(configId);
+      allow list: if isActiveUser() && existing().configId is string;
+      allow create: if isActiveUser() && isValidId(configId) && isValidSystemConfig(incoming(), configId) && (
+        isSuperAdmin() ||
+        isCeo() ||
+        (configId in ['dashboardKpis', 'productionSummary'])
+      );
+      allow update: if isActiveUser() && isValidId(configId) && isValidSystemConfig(incoming(), configId) && (
+        isSuperAdmin() ||
+        isCeo() ||
+        (
+          configId in ['dashboardKpis', 'productionSummary'] &&
+          incoming().configId == existing().configId &&
+          incoming().configType == existing().configType
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Collection 3: /customers/{customerId}
+    match /customers/{customerId} {
+      allow get: if isActiveUser() && isValidId(customerId) && (
+        isSuperAdmin() || isCeo() || isSales() || isStores() || isPurchase() || isQuality() || isDispatch() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isSales() || isStores() || isPurchase() || isQuality() || isDispatch() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(customerId) && isValidCustomer(incoming(), customerId) && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      );
+      allow update: if isActiveUser() && isValidId(customerId) && isValidCustomer(incoming(), customerId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      );
+      allow delete: if isActiveUser() && isValidId(customerId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 4: /products/{productId}
+    match /products/{productId} {
+      allow get: if isActiveUser() && isValidId(productId);
+      allow list: if isActiveUser() && existing().id is string;
+      allow create: if isActiveUser() && isValidId(productId) && isValidProduct(incoming(), productId) && (
+        isSuperAdmin() || isCeo() || isSales() || isQuality()
+      );
+      allow update: if isActiveUser() && isValidId(productId) && isValidProduct(incoming(), productId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isSales() || isQuality()
+      );
+      allow delete: if isActiveUser() && isValidId(productId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 5: /salesOrders/{orderId}
+    match /salesOrders/{orderId} {
+      allow get: if isActiveUser() && isValidId(orderId);
+      allow list: if isActiveUser() && existing().orderId is string;
+      allow create: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) && (
+        isSuperAdmin() || isCeo() || isSales()
+      );
+      allow update: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) &&
+        incoming().orderId == existing().orderId && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        isCeo() ||
+        isSales() ||
+        // Stores action: manufacturing stage, heatNo, and delay updates only
+        (isStores() && incoming().diff(existing()).affectedKeys().hasOnly([
+          'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo', 'stages', 'updatedAt'
+        ])) ||
+        // Quality action: quality stage & MTC updates only
+        (isQuality() && incoming().diff(existing()).affectedKeys().hasOnly([
+          'currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt'
+        ])) ||
+        // Dispatch action: dispatch stage & status updates only
+        (isDispatch() && incoming().diff(existing()).affectedKeys().hasOnly([
+          'currentStage', 'overallStatus', 'dispatchStatus', 'stages', 'updatedAt'
+        ])) ||
+        // Finance action: invoicing & payment status updates only
+        (isFinance() && incoming().diff(existing()).affectedKeys().hasOnly([
+          'currentStage', 'overallStatus', 'invoiceNo', 'paymentStatus', 'stages', 'updatedAt'
+        ]))
+      );
+      allow delete: if isActiveUser() && isValidId(orderId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 6: /dispatches/{dispatchId}
+    match /dispatches/{dispatchId} {
+      allow get: if isActiveUser() && isValidId(dispatchId) && (
+        isSuperAdmin() || isCeo() || isSales() || isDispatch() || isFinance() || isStores()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isSales() || isDispatch() || isFinance() || isStores()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) && (
+        isSuperAdmin() || isCeo() || isDispatch()
+      );
+      allow update: if isActiveUser() && isValidId(dispatchId) && isValidDispatch(incoming(), dispatchId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId &&
+        incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isDispatch()
+      );
+      allow delete: if isActiveUser() && isValidId(dispatchId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 7: /rawMaterials/{materialId}
+    match /rawMaterials/{materialId} {
+      allow get: if isActiveUser() && isValidId(materialId) && (
+        isSuperAdmin() || isCeo() || isStores() || isPurchase() || isQuality() || isSales() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isPurchase() || isQuality() || isSales() || isFinance()
+      ) && existing().gradeId is string;
+      allow create: if isActiveUser() && isValidId(materialId) && isValidRawMaterial(incoming(), materialId) && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(materialId) && isValidRawMaterial(incoming(), materialId) &&
+        incoming().gradeId == existing().gradeId && incoming().steelGrade == existing().steelGrade && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow delete: if isActiveUser() && isValidId(materialId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 8: /stockMovements/{movementId} (Immutable Ledger)
+    match /stockMovements/{movementId} {
+      allow get: if isActiveUser() && isValidId(movementId) && (
+        isSuperAdmin() || isCeo() || isStores() || isPurchase() || isFinance() || isQuality()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isPurchase() || isFinance() || isQuality()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(movementId) && isValidStockMovement(incoming(), movementId) && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow update: if false;
+      allow delete: if isActiveUser() && isValidId(movementId) && isSuperAdmin();
+    }
+
+    // Collection 9: /qualityInspections/{inspectionId}
+    match /qualityInspections/{inspectionId} {
+      allow get: if isActiveUser() && isValidId(inspectionId) && (
+        isSuperAdmin() || isCeo() || isQuality() || isStores() || isSales() || isDispatch()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isQuality() || isStores() || isSales() || isDispatch()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(inspectionId) && isValidQualityInspection(incoming(), inspectionId) && (
+        isSuperAdmin() || isCeo() || isQuality()
+      );
+      allow update: if isActiveUser() && isValidId(inspectionId) && isValidQualityInspection(incoming(), inspectionId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId &&
+        incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isQuality()
+      );
+      allow delete: if isActiveUser() && isValidId(inspectionId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 10: /outstandingPayments/{paymentId} (Confidential Financial — R-4 Sales Read Allowed)
+    match /outstandingPayments/{paymentId} {
+      allow get: if isActiveUser() && isValidId(paymentId) && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      ) && existing().invoiceId is string;
+      allow create: if isActiveUser() && isValidId(paymentId) && isValidOutstandingPayment(incoming(), paymentId) && (
+        isSuperAdmin() || isCeo() || isFinance()
+      );
+      allow update: if isActiveUser() && isValidId(paymentId) && isValidOutstandingPayment(incoming(), paymentId) &&
+        incoming().invoiceId == existing().invoiceId && (
+        isSuperAdmin() || isCeo() || isFinance()
+      );
+      allow delete: if isActiveUser() && isValidId(paymentId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 11: /actionQueue/{actionId}
+    match /actionQueue/{actionId} {
+      allow get: if isActiveUser() && isValidId(actionId);
+      allow list: if isActiveUser() && existing().id is string;
+      allow create: if isActiveUser() && isValidId(actionId) && isValidActionQueueItem(incoming(), actionId);
+      allow update: if isActiveUser() && isValidId(actionId) && isValidActionQueueItem(incoming(), actionId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        isCeo() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'acknowledgedBy', 'acknowledgedAt', 'updatedAt'
+        ])
+      );
+      allow delete: if isActiveUser() && isValidId(actionId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 12: /auditLogs/{logId} (Append-Only Immutable Audit Trail)
+    match /auditLogs/{logId} {
+      allow get: if isActiveUser() && isValidId(logId) && (isSuperAdmin() || isCeo());
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo()) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(logId) && isValidAuditLog(incoming(), logId);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Collection 13: /quotations/{quotationId} (Register #1)
+    match /quotations/{quotationId} {
+      allow get: if isActiveUser() && isValidId(quotationId) && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(quotationId) && isValidQuotation(incoming(), quotationId) && (
+        isSuperAdmin() || isCeo() || isSales()
+      );
+      allow update: if isActiveUser() && isValidId(quotationId) && isValidQuotation(incoming(), quotationId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isSales()
+      );
+      allow delete: if isActiveUser() && isValidId(quotationId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 14: /tenders/{tenderId} (Register #2)
+    match /tenders/{tenderId} {
+      allow get: if isActiveUser() && isValidId(tenderId) && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isSales() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(tenderId) && isValidTender(incoming(), tenderId) && (
+        isSuperAdmin() || isCeo() || isSales()
+      );
+      allow update: if isActiveUser() && isValidId(tenderId) && isValidTender(incoming(), tenderId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isSales()
+      );
+      allow delete: if isActiveUser() && isValidId(tenderId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 15: /suppliers/{supplierId}
+    match /suppliers/{supplierId} {
+      allow get: if isActiveUser() && isValidId(supplierId) && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isQuality() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isQuality() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(supplierId) && isValidSupplier(incoming(), supplierId) && (
+        isSuperAdmin() || isCeo() || isPurchase()
+      );
+      allow update: if isActiveUser() && isValidId(supplierId) && isValidSupplier(incoming(), supplierId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isPurchase()
+      );
+      allow delete: if isActiveUser() && isValidId(supplierId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 16: /purchaseOrders/{poId} (Register #3)
+    match /purchaseOrders/{poId} {
+      allow get: if isActiveUser() && isValidId(poId) && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(poId) && isValidPurchaseOrder(incoming(), poId) && (
+        isSuperAdmin() || isCeo() || isPurchase()
+      );
+      allow update: if isActiveUser() && isValidId(poId) && isValidPurchaseOrder(incoming(), poId) &&
+        incoming().id == existing().id && incoming().poNumber == existing().poNumber &&
+        incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        isCeo() ||
+        isPurchase() ||
+        // Stores GRN receipt update only
+        (isStores() && incoming().diff(existing()).affectedKeys().hasOnly(['receivedMT', 'status', 'updatedAt']))
+      );
+      allow delete: if isActiveUser() && isValidId(poId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 17: /machineLogs/{logId} (Register #4)
+    match /machineLogs/{logId} {
+      allow get: if isActiveUser() && isValidId(logId) && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality() || isSales()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality() || isSales()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(logId) && isValidMachineLog(incoming(), logId) && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(logId) && isValidMachineLog(incoming(), logId) &&
+        incoming().id == existing().id && incoming().loggedAt == existing().loggedAt && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow delete: if isActiveUser() && isValidId(logId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 18: /furnaceLogs/{logId} (Register #5)
+    match /furnaceLogs/{logId} {
+      allow get: if isActiveUser() && isValidId(logId) && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(logId) && isValidFurnaceLog(incoming(), logId) && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      );
+      allow update: if isActiveUser() && isValidId(logId) && isValidFurnaceLog(incoming(), logId) &&
+        incoming().id == existing().id && incoming().startedAt == existing().startedAt && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      );
+      allow delete: if isActiveUser() && isValidId(logId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 19: /maintenanceTickets/{ticketId} (Register #6)
+    match /maintenanceTickets/{ticketId} {
+      allow get: if isActiveUser() && isValidId(ticketId) && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isQuality()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(ticketId) && isValidMaintenanceTicket(incoming(), ticketId) && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(ticketId) && isValidMaintenanceTicket(incoming(), ticketId) &&
+        incoming().id == existing().id && incoming().reportedAt == existing().reportedAt && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow delete: if isActiveUser() && isValidId(ticketId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 20: /powerLogs/{logId} (Register #7)
+    match /powerLogs/{logId} {
+      allow get: if isActiveUser() && isValidId(logId) && (
+        isSuperAdmin() || isCeo() || isStores() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isStores() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(logId) && isValidPowerLog(incoming(), logId) && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(logId) && isValidPowerLog(incoming(), logId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isStores()
+      );
+      allow delete: if isActiveUser() && isValidId(logId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 21: /dimensionalReports/{reportId} (Register #8)
+    match /dimensionalReports/{reportId} {
+      allow get: if isActiveUser() && isValidId(reportId) && (
+        isSuperAdmin() || isCeo() || isQuality() || isSales() || isStores() || isDispatch()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isQuality() || isSales() || isStores() || isDispatch()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(reportId) && isValidDimensionalReport(incoming(), reportId) && (
+        isSuperAdmin() || isCeo() || isQuality()
+      );
+      allow update: if isActiveUser() && isValidId(reportId) && isValidDimensionalReport(incoming(), reportId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId &&
+        incoming().inspectedAt == existing().inspectedAt && (
+        isSuperAdmin() || isCeo() || isQuality()
+      );
+      allow delete: if isActiveUser() && isValidId(reportId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 22: /jobCostSheets/{costSheetId} (Confidential Financial)
+    match /jobCostSheets/{costSheetId} {
+      allow get: if isActiveUser() && isValidId(costSheetId) && (
+        isSuperAdmin() || isCeo() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(costSheetId) && isValidJobCostSheet(incoming(), costSheetId) && (
+        isSuperAdmin() || isCeo() || isFinance()
+      );
+      allow update: if isActiveUser() && isValidId(costSheetId) && isValidJobCostSheet(incoming(), costSheetId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId && (
+        isSuperAdmin() ||
+        isCeo() ||
+        // Terminal state lock: once Finalized, only super_admin or ceo can modify
+        (isFinance() && existing().costStatus != 'Finalized')
+      );
+      allow delete: if isActiveUser() && isValidId(costSheetId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 23: /tasks/{taskId} (Central Task, Duty & Supervisor Verification Engine)
+    match /tasks/{taskId} {
+      allow get: if isActiveUser() && isValidId(taskId);
+      allow list: if isActiveUser() && existing().id is string;
+      allow create: if isActiveUser() && isValidId(taskId) && isValidTaskRecord(incoming(), taskId);
+      allow update: if isActiveUser() && isValidId(taskId) && isValidTaskRecord(incoming(), taskId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        isCeo() ||
+        // Maker != Checker: Non-executive employee cannot mark their own assigned task 'Verified & Approved'
+        (incoming().status != 'Verified & Approved') ||
+        (incoming().assignedToUid != request.auth.uid && ('isDepartmentHead' in currentUserDoc() && currentUserDoc().isDepartmentHead == true))
+      );
+      allow delete: if isActiveUser() && isValidId(taskId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 24: /handovers/{handoverId} (Inter-Department H-1..H-5 Dual-Custody Handover Ledger)
+    match /handovers/{handoverId} {
+      allow get: if isActiveUser() && isValidId(handoverId);
+      allow list: if isActiveUser() && existing().id is string;
+      allow create: if isActiveUser() && isValidId(handoverId) && isValidHandoverRecord(incoming(), handoverId);
+      allow update: if isActiveUser() && isValidId(handoverId) && isValidHandoverRecord(incoming(), handoverId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId && (
+        isSuperAdmin() ||
+        isCeo() ||
+        // Dual-custody: Sender cannot self-accept their own outgoing handover
+        (incoming().fromUid != request.auth.uid && hasRole(existing().toRole)) ||
+        (incoming().status == 'Pending Acceptance' && incoming().fromUid == request.auth.uid)
+      );
+      allow delete: if isActiveUser() && isValidId(handoverId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 25: /purchaseRequisitions/{requisitionId} (PR -> Maker!=Checker Approval -> PO)
+    match /purchaseRequisitions/{requisitionId} {
+      allow get: if isActiveUser() && isValidId(requisitionId) && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isSales() || isFinance()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores() || isSales() || isFinance()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(requisitionId) && isValidPurchaseRequisition(incoming(), requisitionId) && (
+        isSuperAdmin() || isCeo() || isPurchase() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(requisitionId) && isValidPurchaseRequisition(incoming(), requisitionId) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        isCeo() ||
+        // Maker != Checker: Requester cannot self-approve their own PR unless CEO/SuperAdmin
+        (isPurchase() && incoming().requestedByUid != request.auth.uid) ||
+        (isStores() && incoming().status in ['Draft', 'Pending Approval'])
+      );
+      allow delete: if isActiveUser() && isValidId(requisitionId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 26: /ncrCapaRecords/{ncrId} (Non-Conformance & CAPA Register)
+    match /ncrCapaRecords/{ncrId} {
+      allow get: if isActiveUser() && isValidId(ncrId);
+      allow list: if isActiveUser() && existing().id is string;
+      allow create: if isActiveUser() && isValidId(ncrId) && isValidNcrCapaRecord(incoming(), ncrId) && (
+        isSuperAdmin() || isCeo() || isQuality() || isStores()
+      );
+      allow update: if isActiveUser() && isValidId(ncrId) && isValidNcrCapaRecord(incoming(), ncrId) &&
+        incoming().id == existing().id && incoming().orderId == existing().orderId &&
+        incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isQuality() || isStores()
+      );
+      allow delete: if isActiveUser() && isValidId(ncrId) && (isSuperAdmin() || isCeo());
+    }
+
+    // Collection 27: /paymentFollowUps/{followUpId} (Customer Collection & Receivables Follow-Up Register)
+    match /paymentFollowUps/{followUpId} {
+      allow get: if isActiveUser() && isValidId(followUpId) && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      );
+      allow list: if isActiveUser() && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      ) && existing().id is string;
+      allow create: if isActiveUser() && isValidId(followUpId) && isValidPaymentFollowUp(incoming(), followUpId) && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      );
+      allow update: if isActiveUser() && isValidId(followUpId) && isValidPaymentFollowUp(incoming(), followUpId) &&
+        incoming().id == existing().id && incoming().invoiceId == existing().invoiceId &&
+        incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() || isCeo() || isFinance() || isSales()
+      );
+      allow delete: if isActiveUser() && isValidId(followUpId) && (isSuperAdmin() || isCeo());
+    }
+  }
+}
