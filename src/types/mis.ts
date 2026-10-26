@@ -314,6 +314,8 @@ export interface OrderJourney {
     | 'Verified';
   creditHoldOverrideBy?: string;
   /** Dispatch needs both clearances: UID of the Quality / Finance approver and when. */
+  /** True when the viewer's role may not see order value (totalValue is then 0, not real). */
+  commercialRestricted?: boolean;
   qualityClearedBy?: string | null;
   qualityClearedAt?: string | null;
   financeClearedBy?: string | null;

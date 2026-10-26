@@ -70,7 +70,6 @@ function salesOrder(orderId: string): Record<string, any> {
     productName: 'Flange',
     steelGrade: 'A105',
     quantityMT: 10,
-    totalValueINR: 500000,
     orderDate: '2026-10-01',
     committedDeliveryDate: '2026-11-15',
     currentStage: 'Ready for Dispatch',
@@ -96,6 +95,8 @@ function consignment(id: string, salesOrderId: string): Record<string, any> {
 
 const results: { name: string; ok: boolean; detail?: string }[] = [];
 async function check(name: string, fn: () => Promise<unknown>) {
+  // RULES_TEST_FILTER=text runs only the cases whose name contains text.
+  if (process.env.RULES_TEST_FILTER && !name.toLowerCase().includes(process.env.RULES_TEST_FILTER.toLowerCase())) return;
   try {
     await fn();
     results.push({ name, ok: true });
@@ -125,6 +126,13 @@ async function main() {
     await setDoc(doc(db, 'salesOrders/ORD-1'), salesOrder('ORD-1'));
     await setDoc(doc(db, 'salesOrders/ORD-2'), salesOrder('ORD-2'));
     await setDoc(doc(db, 'users/finance1'), profile('finance1', 'finance', 'active'));
+    await setDoc(doc(db, 'orderCommercials/ORD-1'), {
+      orderId: 'ORD-1',
+      totalValueINR: 500000,
+      ratePerUnitINR: 1250,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    });
     await setDoc(doc(db, 'systemConfig/dashboardKpis'), {
       configId: 'dashboardKpis',
       configType: 'dashboardKpis',
@@ -270,6 +278,28 @@ async function main() {
   );
   await check('Sales cannot record a quality inspection', () =>
     assertFails(setDoc(doc(as('sales1'), 'qualityInspections/QC-3'), inspection('QC-3', 10, 10, 0)))
+  );
+
+  // --- Order value is visible to commercial roles only (Montex) -----------
+  await check('Dispatch cannot read order value', () =>
+    assertFails(getDoc(doc(as('dispatch1'), 'orderCommercials/ORD-1')))
+  );
+  await check('Quality cannot read order value', () =>
+    assertFails(getDoc(doc(as('quality1'), 'orderCommercials/ORD-1')))
+  );
+  await check('Finance can read order value', () =>
+    assertSucceeds(getDoc(doc(as('finance1'), 'orderCommercials/ORD-1')))
+  );
+  await check('Sales can update order value', () =>
+    assertSucceeds(
+      updateDoc(doc(as('sales1'), 'orderCommercials/ORD-1'), {
+        totalValueINR: 520000,
+        updatedAt: '2026-10-26T00:00:00.000Z',
+      })
+    )
+  );
+  await check('Order value cannot be written into the order itself', () =>
+    assertFails(updateDoc(doc(as('sales1'), 'salesOrders/ORD-2'), { totalValueINR: 1 }))
   );
 
   // --- Dispatch clearances (both mandatory, confirmed by Montex) ---------

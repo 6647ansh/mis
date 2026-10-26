@@ -61,6 +61,7 @@ import {
   FirestorePurchaseRequisitionDoc,
   FirestoreNcrCapaDoc,
   FirestorePaymentFollowUpDoc,
+  FirestoreOrderCommercialDoc,
 } from './firestoreService';
 
 // ============================================================================
@@ -1004,6 +1005,68 @@ const ORDER_STATUS_UI_TO_FS: Record<
   on_hold: { currentStage: 'Forging', overallStatus: 'Delayed' },
 };
 
+function omitKeys<T extends Record<string, any>>(value: T, keys: string[]): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([k]) => !keys.includes(k))) as Partial<T>;
+}
+
+/** Order value, rate and invoice amounts, kept apart from the order so only commercial roles can read them. */
+export function mapOrderCommercialToFirestoreDoc(
+  o: OrderJourney,
+  updatedBy: string,
+  createdAt: string | undefined,
+  dataOrigin: DataRecordOrigin = 'production'
+): FirestoreOrderCommercialDoc {
+  const nowIso = new Date().toISOString();
+  const li = o.lineItems?.[0];
+  const doc: FirestoreOrderCommercialDoc = {
+    orderId: o.id,
+    totalValueINR: Math.max(0, o.totalValue || 0),
+    updatedBy: updatedBy.slice(0, 128),
+    createdAt: createdAt || nowIso,
+    updatedAt: nowIso,
+    dataOrigin,
+  };
+  if (li && typeof li.ratePerUnit === 'number') doc.ratePerUnitINR = Math.max(0, li.ratePerUnit);
+  if (li && typeof li.totalAmount === 'number') doc.lineTotalINR = Math.max(0, li.totalAmount);
+  const inv = o.invoiceStatus;
+  if (inv && typeof inv.invoiceAmount === 'number') doc.invoiceAmountINR = Math.max(0, inv.invoiceAmount);
+  if (inv && typeof inv.paidAmount === 'number') doc.paidAmountINR = Math.max(0, inv.paidAmount);
+  if (inv && typeof inv.outstandingAmount === 'number') doc.outstandingAmountINR = Math.max(0, inv.outstandingAmount);
+  return doc;
+}
+
+/** Puts the commercial figures back on an order; without them the order is marked restricted. */
+export function applyOrderCommercial(
+  order: OrderJourney,
+  commercial: FirestoreOrderCommercialDoc | undefined
+): OrderJourney {
+  if (!commercial) return { ...order, commercialRestricted: true };
+  const [first, ...rest] = order.lineItems || [];
+  return {
+    ...order,
+    commercialRestricted: false,
+    totalValue: commercial.totalValueINR,
+    lineItems: first
+      ? [
+          {
+            ...first,
+            ratePerUnit: commercial.ratePerUnitINR ?? first.ratePerUnit,
+            totalAmount: commercial.lineTotalINR ?? first.totalAmount,
+          },
+          ...rest,
+        ]
+      : order.lineItems,
+    invoiceStatus: order.invoiceStatus
+      ? {
+          ...order.invoiceStatus,
+          invoiceAmount: commercial.invoiceAmountINR ?? order.invoiceStatus.invoiceAmount,
+          paidAmount: commercial.paidAmountINR ?? order.invoiceStatus.paidAmount,
+          outstandingAmount: commercial.outstandingAmountINR ?? order.invoiceStatus.outstandingAmount,
+        }
+      : order.invoiceStatus,
+  };
+}
+
 export function mapSalesOrderToFirestoreDoc(
   o: OrderJourney,
   dataOrigin: DataRecordOrigin = 'production'
@@ -1026,7 +1089,6 @@ export function mapSalesOrderToFirestoreDoc(
     productName: (li?.productName || 'Forged Component').slice(0, 160),
     steelGrade: (li?.materialGrade || o.materialStatus?.materialGrade || 'ASTM A105').slice(0, 64),
     quantityMT,
-    totalValueINR: Math.max(0, o.totalValue || 0),
     orderDate: (o.poDate || nowIso.split('T')[0]).slice(0, 40),
     committedDeliveryDate: (o.expectedDeliveryDate || nowIso.split('T')[0]).slice(0, 40),
     currentStage: stageMapping.currentStage,
@@ -1062,12 +1124,15 @@ export function mapSalesOrderToFirestoreDoc(
         status: o.status,
         statusLabel: o.statusLabel,
         targetDeliveryDate: o.targetDeliveryDate,
-        lineItem: li || null,
+        // Rates and amounts are stored in /orderCommercials, never on the order itself.
+        lineItem: li ? omitKeys(li, ['ratePerUnit', 'totalAmount']) : null,
         materialStatus: o.materialStatus,
         qualityStatus: o.qualityStatus,
         clearanceStatus: o.clearanceStatus,
         dispatchStatus: o.dispatchStatus,
-        invoiceStatus: o.invoiceStatus,
+        invoiceStatus: o.invoiceStatus
+          ? omitKeys(o.invoiceStatus, ['invoiceAmount', 'paidAmount', 'outstandingAmount'])
+          : o.invoiceStatus,
       },
     ],
     fprUid: o.fprUid ? o.fprUid.slice(0, 128) : undefined,
@@ -1092,7 +1157,7 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
   const orderedQty =
     stageMeta.lineItem?.orderedQty || Math.max(1, Math.round((doc.quantityMT * 1000) / 28));
   const ratePerUnit =
-    stageMeta.lineItem?.ratePerUnit || Math.round(doc.totalValueINR / Math.max(1, orderedQty));
+    stageMeta.lineItem?.ratePerUnit ?? (doc.totalValueINR ? Math.round(doc.totalValueINR / Math.max(1, orderedQty)) : 0);
 
   const fallbackStatus: OrderStatus =
     doc.overallStatus === 'Delayed'
@@ -1116,7 +1181,8 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
     jobNumber: stageMeta.jobNumber || `JOB-MF-${doc.orderId}`,
     customerId: doc.customerId || 'CUST-001',
     customerName: doc.customerName,
-    totalValue: doc.totalValueINR,
+    // Filled from /orderCommercials for roles allowed to see order value.
+    totalValue: doc.totalValueINR ?? 0,
     currency: 'INR',
     expectedDeliveryDate: doc.committedDeliveryDate,
     targetDeliveryDate: stageMeta.targetDeliveryDate || doc.committedDeliveryDate,

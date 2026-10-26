@@ -564,6 +564,7 @@ export type FirestoreCollectionKey =
   | 'users'
   | 'systemConfig'
   | 'customers'
+  | 'orderCommercials'
   | 'products'
   | 'salesOrders'
   | 'dispatches'
@@ -623,6 +624,7 @@ const ROLE_COLLECTION_READ_MATRIX: Readonly<
     'dispatch',
     'finance',
   ],
+  orderCommercials: ['super_admin', 'ceo', 'sales', 'finance'], // order value: commercial roles only
   salesOrders: [
     'super_admin',
     'ceo',
@@ -739,6 +741,7 @@ const ROLE_COLLECTION_WRITE_MATRIX: Readonly<
   customers: ['super_admin', 'ceo', 'sales', 'finance'],
   // R-3 Resolved: Products write aligned to super_admin, ceo, sales, quality (stores excluded)
   products: ['super_admin', 'ceo', 'sales', 'quality'],
+  orderCommercials: ['super_admin', 'ceo', 'sales', 'finance'],
   salesOrders: [
     'super_admin',
     'ceo',

@@ -95,9 +95,12 @@ Asked one by one as each module is reached; nothing is assumed:
 - ~~Rework vs rejected~~ → rework is part of rejected (rule: rework ≤ rejected).
 - ~~Cleared lot with unaccounted pieces~~ → warning only, not blocked.
 - ~~Who approves employees~~ → Super Admin and CEO (CEO cannot create admins/CEOs).
-- ~~Who sees prices~~ → Sales, Finance, CEO, Super Admin only (to implement: commercial
-  fields move to a restricted sub-document, since Firestore cannot hide single fields).
-- Is quality acceptance and/or finance clearance mandatory before dispatch?
+- ~~Who sees prices~~ → Sales, Finance, CEO, Super Admin only. **Done:** order value, unit
+  rate, line total and invoice amounts live in `/orderCommercials/{orderId}`; existing
+  orders are moved with `npm run migrate:order-values`.
+- ~~Clearances before dispatch~~ → both quality and finance clearance are mandatory.
+  **Done** in rules (`qualityClearedBy`/`financeClearedBy` on the order, checked when a
+  consignment is created).
 - Which KPIs and alerts belong on the 9 AM command-center screen?
 - Which existing data (RTDB or Firestore) is real production data to migrate?
 - Is there a higher-resolution official logo file? The repository copy is 147×102 px.

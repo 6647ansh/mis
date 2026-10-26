@@ -329,15 +329,61 @@ service cloud.firestore {
     }
 
     // 2.5 OrderJourney (/salesOrders/{orderId})
+    // Update check for sales orders: only fields that change are re-validated (unchanged
+    // ones passed isValidSalesOrder at create). Re-checking every field exceeded
+    // Firestore's 1000-expression limit for the clearance updates.
+    function isValidSalesOrderUpdate() {
+      let d = request.resource.data;
+      let e = resource.data;
+      let changed = d.diff(e).affectedKeys();
+      return d.orderId == e.orderId && d.createdAt == e.createdAt &&
+        d.keys().hasOnly([
+        'orderId', 'customerId', 'customerName', 'productId', 'productName',
+        'steelGrade', 'quantityMT', 'orderDate', 'committedDeliveryDate',
+        'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo',
+        'mtcStatus', 'dispatchStatus', 'invoiceNo', 'paymentStatus', 'stages',
+        'fprUid', 'fprName', 'fprDepartment', 'handoverStage', 'documentChecklistStatus',
+        'creditHoldOverrideBy', 'creditHoldOverrideReason',
+        'qualityClearedBy', 'qualityClearedAt', 'financeClearedBy', 'financeClearedAt',
+        'createdBy', 'createdAt', 'updatedAt', 'dataOrigin'
+      ]) &&
+        d.updatedAt is string && d.updatedAt.size() >= 4 && d.updatedAt.size() <= 40 &&
+        (!changed.hasAny(['currentStage']) || d.currentStage in [
+        'Inquiry', 'Order Confirmed', 'Raw Material Allocated', 'Forging',
+        'Heat Treatment', 'Machining', 'Quality Inspection', 'Ready for Dispatch',
+        'Dispatched', 'Invoiced'
+      ]) &&
+        (!changed.hasAny(['overallStatus']) || d.overallStatus in [
+        'On Track', 'At Risk', 'Delayed', 'Completed', 'Cancelled'
+      ]) &&
+        (!changed.hasAny(['quantityMT']) || (d.quantityMT is number && d.quantityMT > 0)) &&
+        (!changed.hasAny(['delayDays']) || (d.delayDays is number && d.delayDays >= 0)) &&
+        (!changed.hasAny(['mtcStatus']) || d.mtcStatus in ['Pending', 'Generated', 'Verified']) &&
+        (!changed.hasAny(['dispatchStatus']) || d.dispatchStatus in ['Not Started', 'Partial', 'Dispatched', 'Delivered']) &&
+        (!changed.hasAny(['paymentStatus']) || d.paymentStatus in ['Unbilled', 'Pending', 'Partially Paid', 'Paid', 'Overdue']) &&
+        (!changed.hasAny(['handoverStage']) || d.handoverStage in ['H-1', 'H-2', 'H-3', 'H-4', 'H-5']) &&
+        (!changed.hasAny(['documentChecklistStatus']) || d.documentChecklistStatus in ['Incomplete', 'Ready', 'Verified']) &&
+        (!changed.hasAny(['stages']) || (d.stages is list && d.stages.size() <= 12)) &&
+        (!changed.hasAny(['customerName', 'productName']) ||
+          (d.customerName is string && d.customerName.size() >= 2 && d.customerName.size() <= 160 &&
+           d.productName is string && d.productName.size() >= 2 && d.productName.size() <= 160)) &&
+        (!changed.hasAny(['delayReason', 'creditHoldOverrideReason']) ||
+          (d.get('delayReason', '') is string && d.get('delayReason', '').size() <= 400 &&
+           d.get('creditHoldOverrideReason', '') is string && d.get('creditHoldOverrideReason', '').size() <= 400)) &&
+        (!changed.hasAny(['qualityClearedBy', 'qualityClearedAt', 'financeClearedBy', 'financeClearedAt']) ||
+          (d.get('qualityClearedAt', null) == null || d.qualityClearedAt is string) &&
+          (d.get('financeClearedAt', null) == null || d.financeClearedAt is string));
+    }
+
     function isValidSalesOrder(data, orderId) {
       return data.keys().hasAll([
         'orderId', 'customerName', 'productName', 'steelGrade', 'quantityMT',
-        'totalValueINR', 'orderDate', 'committedDeliveryDate', 'currentStage',
+        'orderDate', 'committedDeliveryDate', 'currentStage',
         'overallStatus', 'createdAt', 'updatedAt'
       ]) &&
       data.keys().hasOnly([
         'orderId', 'customerId', 'customerName', 'productId', 'productName',
-        'steelGrade', 'quantityMT', 'totalValueINR', 'orderDate', 'committedDeliveryDate',
+        'steelGrade', 'quantityMT', 'orderDate', 'committedDeliveryDate',
         'currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo',
         'mtcStatus', 'dispatchStatus', 'invoiceNo', 'paymentStatus', 'stages',
         'fprUid', 'fprName', 'fprDepartment', 'handoverStage', 'documentChecklistStatus',
@@ -350,7 +396,6 @@ service cloud.firestore {
       data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 160 &&
       data.steelGrade is string && data.steelGrade.size() >= 1 && data.steelGrade.size() <= 64 &&
       data.quantityMT is number && data.quantityMT > 0 &&
-      data.totalValueINR is number && data.totalValueINR >= 0 &&
       data.orderDate is string && data.orderDate.size() >= 4 && data.orderDate.size() <= 40 &&
       data.committedDeliveryDate is string && data.committedDeliveryDate.size() >= 4 && data.committedDeliveryDate.size() <= 40 &&
       data.currentStage is string && data.currentStage in [
@@ -376,10 +421,10 @@ service cloud.firestore {
       (!('documentChecklistStatus' in data) || (data.documentChecklistStatus is string && data.documentChecklistStatus in ['Incomplete', 'Ready', 'Verified'])) &&
       (!('creditHoldOverrideBy' in data) || (data.creditHoldOverrideBy is string && data.creditHoldOverrideBy.size() <= 120)) &&
       (!('creditHoldOverrideReason' in data) || (data.creditHoldOverrideReason is string && data.creditHoldOverrideReason.size() <= 400)) &&
-      optNullableStr(data, 'qualityClearedBy', 128) &&
-      optNullableStr(data, 'qualityClearedAt', 40) &&
-      optNullableStr(data, 'financeClearedBy', 128) &&
-      optNullableStr(data, 'financeClearedAt', 40) &&
+      (!('qualityClearedBy' in data) || data.qualityClearedBy == null || (data.qualityClearedBy is string && data.qualityClearedBy.size() <= 128)) &&
+      (!('qualityClearedAt' in data) || data.qualityClearedAt == null || (data.qualityClearedAt is string && data.qualityClearedAt.size() <= 40)) &&
+      (!('financeClearedBy' in data) || data.financeClearedBy == null || (data.financeClearedBy is string && data.financeClearedBy.size() <= 128)) &&
+      (!('financeClearedAt' in data) || data.financeClearedAt == null || (data.financeClearedAt is string && data.financeClearedAt.size() <= 40)) &&
       (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128)) &&
       data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
       data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
@@ -387,6 +432,26 @@ service cloud.firestore {
     }
 
     // 2.6 DispatchConsignmentRecord (/dispatches/{dispatchId})
+    function isValidOrderCommercial(data, orderId) {
+      return data.keys().hasAll(['orderId', 'totalValueINR', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'orderId', 'totalValueINR', 'ratePerUnitINR', 'lineTotalINR',
+          'invoiceAmountINR', 'paidAmountINR', 'outstandingAmountINR',
+          'createdAt', 'updatedAt', 'updatedBy', 'dataOrigin'
+        ]) &&
+        data.orderId == orderId &&
+        data.totalValueINR is number && data.totalValueINR >= 0 &&
+        data.get('ratePerUnitINR', 0) is number && data.get('ratePerUnitINR', 0) >= 0 &&
+        data.get('lineTotalINR', 0) is number && data.get('lineTotalINR', 0) >= 0 &&
+        data.get('invoiceAmountINR', 0) is number && data.get('invoiceAmountINR', 0) >= 0 &&
+        data.get('paidAmountINR', 0) is number && data.get('paidAmountINR', 0) >= 0 &&
+        data.get('outstandingAmountINR', 0) is number && data.get('outstandingAmountINR', 0) >= 0 &&
+        data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+        data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+        optNullableStr(data, 'updatedBy', 128) &&
+        isValidDataOrigin(data);
+    }
+
     function isValidDispatch(data, dispatchId) {
       return data.keys().hasAll([
         'id', 'orderId', 'customerName', 'quantityTons', 'dispatchDate', 'status', 'createdAt', 'updatedAt'
@@ -1332,13 +1397,24 @@ service cloud.firestore {
       // Dispatch needs both clearances (confirmed by Montex). Only Quality (or CEO /
       // Super Admin) may give or withdraw the quality clearance, only Finance (or CEO /
       // Super Admin) the finance clearance, and a clearance must name the caller.
-      allow update: if isActiveUser() && isValidId(orderId) && isValidSalesOrder(incoming(), orderId) &&
-        incoming().orderId == existing().orderId && incoming().createdAt == existing().createdAt &&
+      allow update: if isActiveUser() && isValidId(orderId) && isValidSalesOrderUpdate() &&
         (isBootstrapOwner() || salesOrderUpdateAllowed(currentUserDoc()));
       allow delete: if isActiveUser() && isValidId(orderId) && (isSuperAdmin() || isCeo());
     }
 
     // Collection 6: /dispatches/{dispatchId}
+    // Order value lives apart from the order because Firestore can't hide single fields:
+    // production, stores, quality and dispatch see the order but not its value (Montex).
+    match /orderCommercials/{orderId} {
+      allow get, list: if isActiveUser() && isValidId(orderId) &&
+        (isSuperAdmin() || isCeo() || isSales() || isFinance());
+      allow create, update: if isActiveUser() && isValidId(orderId) &&
+        isValidOrderCommercial(incoming(), orderId) &&
+        (resource == null || incoming().createdAt == existing().createdAt) &&
+        (isSuperAdmin() || isCeo() || isSales() || isFinance());
+      allow delete: if isActiveUser() && isValidId(orderId) && (isSuperAdmin() || isCeo());
+    }
+
     match /dispatches/{dispatchId} {
       allow get: if isActiveUser() && isValidId(dispatchId) && (
         isSuperAdmin() || isCeo() || isSales() || isDispatch() || isFinance() || isStores()

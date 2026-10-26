@@ -39,6 +39,7 @@ export const FIRESTORE_COLLECTIONS = {
   CUSTOMERS: 'customers',
   PRODUCTS: 'products',
   SALES_ORDERS: 'salesOrders',
+  ORDER_COMMERCIALS: 'orderCommercials',
   DISPATCHES: 'dispatches',
   RAW_MATERIALS: 'rawMaterials',
   STOCK_MOVEMENTS: 'stockMovements',
@@ -85,6 +86,7 @@ export const COLLECTION_PRIMARY_KEY_FIELD: Readonly<
   customers: 'id',
   products: 'id',
   salesOrders: 'orderId',
+  orderCommercials: 'orderId',
   dispatches: 'id',
   rawMaterials: 'gradeId',
   stockMovements: 'id',
@@ -144,7 +146,8 @@ export interface FirestoreSalesOrderDoc {
   productName: string;
   steelGrade: string;
   quantityMT: number;
-  totalValueINR: number;
+  /** Legacy only: order value now lives in /orderCommercials (restricted read). */
+  totalValueINR?: number;
   orderDate: string;
   committedDeliveryDate: string;
   currentStage: FirestoreSalesOrderStage;
@@ -233,6 +236,20 @@ export interface FirestorePurchaseOrderDoc {
     | 'Received'
     | 'Cancelled';
   createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  dataOrigin?: DataRecordOrigin;
+}
+
+export interface FirestoreOrderCommercialDoc {
+  orderId: string;
+  totalValueINR: number;
+  ratePerUnitINR?: number;
+  lineTotalINR?: number;
+  invoiceAmountINR?: number;
+  paidAmountINR?: number;
+  outstandingAmountINR?: number;
+  updatedBy?: string;
   createdAt: string;
   updatedAt: string;
   dataOrigin?: DataRecordOrigin;
@@ -1015,6 +1032,7 @@ const COLLECTION_READ_ROLES: Readonly<
     'dispatch',
     'finance',
   ],
+  orderCommercials: ['super_admin', 'ceo', 'sales', 'finance'], // order value: commercial roles only
   salesOrders: [
     'super_admin',
     'ceo',
@@ -1144,6 +1162,7 @@ const COLLECTION_CREATE_ROLES: Readonly<
   ],
   customers: ['super_admin', 'ceo', 'sales', 'finance'],
   products: ['super_admin', 'ceo', 'sales', 'quality'],
+  orderCommercials: ['super_admin', 'ceo', 'sales', 'finance'],
   salesOrders: ['super_admin', 'ceo', 'sales'],
   dispatches: ['super_admin', 'ceo', 'dispatch'],
   rawMaterials: ['super_admin', 'ceo', 'stores'],
@@ -1221,6 +1240,7 @@ const COLLECTION_UPDATE_ROLES: Readonly<
   ],
   customers: ['super_admin', 'ceo', 'sales', 'finance'],
   products: ['super_admin', 'ceo', 'sales', 'quality'],
+  orderCommercials: ['super_admin', 'ceo', 'sales', 'finance'],
   salesOrders: ['super_admin', 'ceo', 'sales', 'purchase', 'stores', 'quality', 'dispatch', 'finance'],
   dispatches: ['super_admin', 'ceo', 'dispatch'],
   rawMaterials: ['super_admin', 'ceo', 'stores'],
@@ -1404,12 +1424,6 @@ export function validateFirestoreDocumentPayload(
       }
       if (typeof payload.quantityMT !== 'number' || payload.quantityMT <= 0) {
         errors.push('salesOrders.quantityMT must be > 0.');
-      }
-      if (
-        typeof payload.totalValueINR !== 'number' ||
-        payload.totalValueINR < 0
-      ) {
-        errors.push('salesOrders.totalValueINR must be >= 0.');
       }
       break;
     }

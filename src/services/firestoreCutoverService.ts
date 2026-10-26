@@ -66,6 +66,7 @@ import {
   FirestoreStockMovementDoc,
   FirestoreSupplierDoc,
   FirestoreSystemConfigDoc,
+  FirestoreOrderCommercialDoc,
   FirestoreTaskDoc,
   FirestoreTenderDoc,
   MontexFirestoreService,
@@ -120,6 +121,8 @@ import {
   mapQuotationToFirestoreDoc,
   mapRawMaterialToFirestoreDoc,
   mapSalesOrderToFirestoreDoc,
+  mapOrderCommercialToFirestoreDoc,
+  applyOrderCommercial,
   mapStockMovementToFirestoreDoc,
   mapTaskToFirestoreDoc,
   mapTenderToFirestoreDoc,
@@ -682,7 +685,23 @@ export class MontexCutoverEngine {
       ),
     ]);
 
-    emptySnapshot.salesOrders = salesOrders;
+    // Order value, rates and invoice amounts come from /orderCommercials, readable
+    // only by commercial roles; everyone else gets orders marked commercialRestricted.
+    let commercialById = new Map<string, FirestoreOrderCommercialDoc>();
+    if (canRoleReadCollection(role, 'orderCommercials') && salesOrders.length > 0) {
+      const comRes = await this.fs.listDocuments<FirestoreOrderCommercialDoc>('orderCommercials');
+      if (comRes.success) {
+        commercialById = new Map((comRes.items || []).map((c) => [c.orderId, c]));
+      } else {
+        emptySnapshot.warnings.push(`/orderCommercials: ${comRes.message}`);
+      }
+    }
+    const canSeeCommercial = canRoleReadCollection(role, 'orderCommercials');
+    emptySnapshot.salesOrders = salesOrders.map((o) =>
+      canSeeCommercial
+        ? applyOrderCommercial(o, commercialById.get(o.id) || { orderId: o.id, totalValueINR: o.totalValue || 0, createdAt: '', updatedAt: '' })
+        : applyOrderCommercial({ ...o, totalValue: 0 }, undefined)
+    );
     emptySnapshot.rawMaterials = rawMaterials;
     emptySnapshot.stockMovements = stockMovements;
     emptySnapshot.qualityInspections = qualityInspections;
@@ -952,11 +971,13 @@ export class MontexCutoverEngine {
         };
       }
 
+      const commercialWarning = await this.saveOrderCommercial(newOrder, user);
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: commercialWarning ? 'PARTIAL_WRITE' : 'OK',
+        warning: commercialWarning,
         data: {
           quotation: mapFirestoreDocToQuotation(quoteRes.data!),
           order: mapFirestoreDocToSalesOrder(orderRes.data!),
@@ -1748,11 +1769,13 @@ export class MontexCutoverEngine {
           error: res.message,
         };
       }
+      const commercialWarning = await this.saveOrderCommercial(order, user);
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: commercialWarning ? 'PARTIAL_WRITE' : 'OK',
+        warning: commercialWarning,
         data: mapFirestoreDocToSalesOrder(res.data),
       };
     } finally {
@@ -1819,11 +1842,13 @@ export class MontexCutoverEngine {
           error: res.message,
         };
       }
+      const commercialWarning = await this.saveOrderCommercial(order, user);
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: commercialWarning ? 'PARTIAL_WRITE' : 'OK',
+        warning: commercialWarning,
         data: mapFirestoreDocToSalesOrder(res.data),
       };
     } finally {
@@ -2233,6 +2258,27 @@ export class MontexCutoverEngine {
    * Rules limit quality clearance to Quality/CEO/Super Admin and finance clearance to
    * Finance/CEO/Super Admin, and require the clearance to name the caller.
    */
+  /**
+   * Saves an order's value, rate and invoice amounts to /orderCommercials. Returns a
+   * warning instead of failing the order save, so the caller can tell the user exactly
+   * what did not persist.
+   */
+  private async saveOrderCommercial(order: OrderJourney, user: UserProfile): Promise<string | undefined> {
+    if (!canRoleWriteCollection(user.role, 'orderCommercials')) return undefined;
+    const existing = await this.fs
+      .getDocumentById<FirestoreOrderCommercialDoc>('orderCommercials', order.id)
+      .catch(() => null);
+    const doc = mapOrderCommercialToFirestoreDoc(
+      order,
+      user.uid || user.id,
+      existing && existing.success && existing.data ? existing.data.createdAt : undefined
+    );
+    const res = await this.fs.setDocument('orderCommercials', order.id, doc, { merge: false });
+    return res.success
+      ? undefined
+      : `Order ${order.jobNumber || order.id} is saved, but its value and rates were not. Open the order and save it again.`;
+  }
+
   async setOrderClearance(
     order: OrderJourney,
     kind: 'quality' | 'finance',
