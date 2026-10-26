@@ -45,6 +45,11 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 | S4 | Owner bootstrap is hard-coded to one email in rules, client and server. That works, but it is a single point of trust. Keep it, but limit it to first-run bootstrap and audit-log every use. | Low | `firestore.rules` `isBootstrapOwner`, `RtdbContext.tsx` |
 | S5 | Every active user can `get`/`list` every sales order (prices, customers). The blueprint asks for "show only role-relevant information"; read scopes per role are an open question for Montex. | Open | `firestore.rules` `/salesOrders` |
 | S6 | Email/password sign-up creates Auth accounts from the browser. This is removed by the Google-only decision. | Medium | `registerOrBootstrapUser` |
+| S7 | **Rules bypass:** when Firestore refused a customer/product write or delete (`PERMISSION_DENIED`), the client wrote the same change to RTDB instead. **Fixed** (Firestore only). | High | `upsertCustomerRecord`, `deleteCustomerRecord`, product equivalents |
+| S8 | Any active user may create/update `systemConfig/dashboardKpis` (the CEO's KPI numbers). The monthly sales target is now locked to CEO/Super Admin; the other KPI fields should be computed from data rather than written by users (open). | High | `firestore.rules` `/systemConfig` |
+| S9 | False "saved" messages: the monthly sales target was written only to RTDB but reported as saved to Firestore; employee role changes reported success even when the Firestore write failed. **Fixed.** | Medium | `updateMonthlySalesTarget`, `AdminView` role change |
+| S10 | A deactivated employee kept a working UI until reload because the profile-listener error was ignored. **Fixed:** the session locks immediately. | Medium | `RtdbContext.tsx` own-profile `onSnapshot` |
+| S11 | Inviting an employee without the server created an active profile with an invented UID (`uid-emp-XXXX`) that can never match a Google sign-in. **Removed:** inviting now needs the server; otherwise the employee signs in once and is approved from the queue. | Medium | `AdminView` invite |
 
 ### 3.2 Blueprint known bugs — root causes
 
@@ -66,10 +71,11 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 
 ## 4. Plan (blueprint roadmap order)
 
-1. **Security gate** — remove demo mode, Google-only sign-in, and screens for
+1. ✅ **Security gate** — remove demo mode, Google-only sign-in, and screens for
    pending, rejected and deactivated accounts. (S1, S6)
-2. **Firestore only** — delete RTDB reads, writes and merging; add a one-time,
-   admin-run RTDB → Firestore migration script. (S2, S3, rejection bugs)
+2. ✅ **Firestore only** — RTDB reads, writes and merging removed from the app;
+   `database.rules.json` now denies everything; `npm run migrate:rtdb` copies old
+   RTDB records into Firestore (dry run by default). (S2, S3, S7, rejection bugs)
 3. **Rules** — quality quantity invariant; per-role read scopes once confirmed;
    rule tests on the Firestore emulator.
 4. **Design system and cover page** — navy + bronze tokens, shared components,

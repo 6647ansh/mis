@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "verify:phase3": "tsx scripts/verify-phase3-auth-provisioning.ts",
     "verify:phase4": "tsx scripts/verify-phase4-firestore-service.ts",
-    "verify:phase5": "tsx scripts/verify-phase5-cutover.ts"
+    "verify:phase5": "tsx scripts/verify-phase5-cutover.ts",
+    "migrate:rtdb": "tsx scripts/migrate-rtdb-to-firestore.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

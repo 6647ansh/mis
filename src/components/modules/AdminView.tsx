@@ -19,9 +19,8 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react';
-import { ref, get } from 'firebase/database';
-import { rtdb, isFirestoreConfigured } from '../../lib/firebase';
-import { ROLE_PERMISSION_DEFAULTS } from '../../data/mockData';
+import { isFirestoreConfigured } from '../../lib/firebase';
+import { ROLE_PERMISSION_DEFAULTS } from '../../types/roles';
 import { UserProfile, UserRole } from '../../types/mis';
 import {
   ALL_USER_ROLES,
@@ -32,7 +31,6 @@ import {
   mapRoleToRbacGroup,
 } from '../../types/roles';
 import { useRtdb, reconcileRecordsById } from '../../context/RtdbContext';
-import { adminUpdateEmployeeProfileInRtdb, recordToArray } from '../../services/rtdbService';
 import { firestoreService } from '../../services/firestoreService';
 import {
   mapFirestoreDocToUserProfile,
@@ -145,73 +143,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
     isSuperAdmin ? true : r !== 'super_admin' && r !== 'ceo'
   );
 
-  // Live sync of /users from both Cloud Firestore and Realtime Database for Admin Approval Queue
+  // Employee directory comes from Firestore /users only (single source of truth).
   const syncEmployeeDirectoryFromDatabases = useCallback(async () => {
     if (!canViewDirectory || !firebaseUser) return;
     setSyncingQueue(true);
     try {
-      let fsUsers: UserProfile[] = [];
-      let rtdbUsers: UserProfile[] = [];
-
-      if (isFirestoreConfigured) {
-        const fsRes = await firestoreService.listDocuments('users', { pageSize: 200 });
-        if (fsRes.success && fsRes.items.length > 0) {
-          fsUsers = fsRes.items.map((doc) => mapFirestoreDocToUserProfile(doc));
-        }
-      }
-
-      try {
-        const snap = await get(ref(rtdb, 'users'));
-        if (snap.exists()) {
-          const rawArr = recordToArray<any>(snap.val(), []);
-          rtdbUsers = rawArr.map((u: any) => {
-            const resolved = resolveUserRoleMapping(u);
-            const status = (u.accountStatus || 'pending_approval') as UserProfile['accountStatus'];
-            const isAct = status === 'active' && !resolved.isUnassigned;
-            const rawReqRole = u.requestedRole || u.legacyRole || resolved.granularRole;
-            const safeReqRole: UserRole = isCanonicalUserRole(rawReqRole)
-              ? rawReqRole
-              : resolved.granularRole;
-            const legacyStatus: UserProfile['status'] =
-              status === 'active'
-                ? 'Active'
-                : status === 'rejected'
-                  ? 'Rejected'
-                  : status === 'deactivated'
-                    ? 'Inactive'
-                    : 'Pending';
-            return {
-              ...u,
-              id: u.id || u.uid,
-              uid: u.uid || u.id,
-              name: u.displayName || u.name || u.email?.split('@')[0] || 'Employee',
-              displayName: u.displayName || u.name || u.email?.split('@')[0] || 'Employee',
-              role: resolved.granularRole,
-              requestedRole: safeReqRole,
-              requestedDepartment: u.requestedDepartment || u.department || 'Operations',
-              rbacGroup: resolved.rbacGroup,
-              roleTitle:
-                status === 'deactivated'
-                  ? 'ACCOUNT DEACTIVATED'
-                  : status === 'rejected'
-                  ? 'ACCESS REQUEST REJECTED'
-                  : status === 'pending_approval' || status === 'pending_invitation'
-                  ? `Pending Admin Approval (Requested: ${safeReqRole.toUpperCase()})`
-                  : u.roleTitle || `${resolved.rbacGroup}`,
-              accountStatus: status,
-              status: legacyStatus,
-              permissions: isAct ? resolved.permissions : [],
-            } as UserProfile;
-          });
-        }
-      } catch {
-        // Ignore RTDB read error if offline
-      }
-
-      if (fsUsers.length > 0 || rtdbUsers.length > 0) {
-        const merged = reconcileRecordsById<UserProfile>(fsUsers, rtdbUsers, 'id');
-        setUsersList(merged);
-        setLocalUsers(merged);
+      const fsRes = await firestoreService.listDocuments('users', { pageSize: 200 });
+      if (fsRes.success) {
+        const fsUsers = fsRes.items.map((doc) => mapFirestoreDocToUserProfile(doc));
+        setUsersList(fsUsers);
+        setLocalUsers(fsUsers);
+      } else {
+        setActionErrorMsg('The employee list could not be loaded. Check your connection, then refresh.');
       }
     } finally {
       setSyncingQueue(false);
@@ -513,16 +456,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
         fsToggleOk = fsRes.success;
       }
 
-      const rtdbRes = await adminUpdateEmployeeProfileInRtdb(
-        updatedToggleUser,
-        roleGroup,
-        newStatus,
-        undefined,
-        currentUser
-      );
-      if (!rtdbRes.success && !fsToggleOk) {
+      if (!fsToggleOk) {
         setActionErrorMsg(
-          `Update Error: ${rtdbRes.error || apiRes.message}`
+          `The change for ${user.email} could not be saved. Please try again; nothing was changed.`
         );
         return;
       }
@@ -538,15 +474,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         `${newStatus === 'deactivated' ? 'Deactivated' : 'Reactivated'} ${user.email} (${user.id}).`
       );
 
-      const persistedAnywhere = rtdbRes.persistedToRtdb || fsToggleOk;
       const msg =
         newStatus === 'deactivated'
-          ? persistedAnywhere
-            ? `Saved to Firebase (/users/${user.id}): Account ${user.email} deactivated.`
-            : `[Preview Session Mode] Account ${user.email} deactivated in session state.`
-          : persistedAnywhere
-          ? `Saved to Firebase (/users/${user.id}): Account ${user.email} reactivated with role=${user.role}.`
-          : `[Preview Session Mode] Account ${user.email} reactivated with role=${user.role} in session state.`;
+          ? `${user.email} is deactivated and can no longer sign in to Montex MIS.`
+          : `${user.email} is active again.`;
       setActionSuccessMsg(msg);
       setTimeout(() => setActionSuccessMsg(null), 5000);
     } finally {
@@ -651,27 +582,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
         permissions: ROLE_PERMISSION_DEFAULTS[newRole],
       };
 
-      if (isFirestoreConfigured) {
-        await firestoreService.syncOwnActiveProfileToFirestore(currentUser).catch(() => false);
-        await firestoreService.adminUpsertEmployeeProfileToFirestore(
-          user.id,
-          mapUserProfileToFirestoreDoc(updatedUser),
-          {
-            auditAction: isHigherAuthorityPromotion
-              ? 'HIGHER_AUTHORITY_PROMOTED'
-              : 'EMPLOYEE_ROLE_UPDATED',
-            auditDetails: `Updated role for ${user.email} (${user.id}) to ${newRole}.`,
-          }
-        );
-      }
-
-      await adminUpdateEmployeeProfileInRtdb(
-        updatedUser,
-        newGroup,
-        nextStatus === 'active' ? 'active' : 'deactivated',
-        undefined,
-        currentUser
+      await firestoreService.syncOwnActiveProfileToFirestore(currentUser).catch(() => false);
+      const roleRes = await firestoreService.adminUpsertEmployeeProfileToFirestore(
+        user.id,
+        mapUserProfileToFirestoreDoc(updatedUser),
+        {
+          auditAction: isHigherAuthorityPromotion
+            ? 'HIGHER_AUTHORITY_PROMOTED'
+            : 'EMPLOYEE_ROLE_UPDATED',
+          auditDetails: `Updated role for ${user.email} (${user.id}) to ${newRole}.`,
+        }
       );
+      if (!roleRes.success) {
+        setActionErrorMsg(
+          `The role change for ${user.email} could not be saved. Please try again; nothing was changed.`
+        );
+        return;
+      }
 
       const updateFn = (prev: UserProfile[]) =>
         prev.map((u) => (u.id === user.id ? updatedUser : u));
@@ -813,82 +740,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
         return;
       }
 
-      // Preview session fallback when not signed in to live Firebase Auth
-      if (
-        displayedUsers.some(
-          (u) => u.email.trim().toLowerCase() === cleanEmail
-        )
-      ) {
-        setActionErrorMsg(
-          `Duplicate Employee Email: An account with email "${cleanEmail}" already exists in the directory.`
-        );
-        return;
-      }
-
-      const initials = cleanName
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-        .substring(0, 2);
-
-      const uid = `uid-emp-${Date.now().toString().slice(-4)}`;
-      const nowIso = new Date().toISOString();
-
-      const newUser: UserProfile = {
-        id: uid,
-        uid,
-        name: cleanName,
-        displayName: cleanName,
-        email: cleanEmail,
-        role: newEmployeeRole,
-        legacyRole: newEmployeeRole,
-        rbacGroup,
-        roleTitle: designation,
-        designation,
-        department: newEmployeeDept.trim() || 'Operations',
-        avatarInitials: initials || 'EM',
-        accountStatus: 'active',
-        mustChangePassword: true,
-        invitedBy: currentUser.name,
-        provisionedBy: currentUser.id,
-        provisionedAt: nowIso,
-        createdAt: nowIso.split('T')[0],
-        updatedAt: nowIso,
-        permissions: ROLE_PERMISSION_DEFAULTS[newEmployeeRole],
-      };
-
-      const rtdbRes = await adminUpdateEmployeeProfileInRtdb(
-        newUser,
-        rbacGroup,
-        'active'
+      // 503: the server has no Firebase Admin credentials, so it cannot create the account.
+      // A browser-side fallback would invent a UID that never matches a Google sign-in.
+      setActionErrorMsg(
+        `${cleanEmail} could not be invited because the server is not connected to Firebase Admin yet. ` +
+          'For now, ask the employee to sign in with Google once; their request will appear in the approval queue.'
       );
-      if (!rtdbRes.success) {
-        setActionErrorMsg(
-          `Provisioning Error: ${rtdbRes.error || 'Failed to provision employee profile'}`
-        );
-        return;
-      }
-
-      setLocalUsers((prev) => [newUser, ...prev]);
-      setUsersList((prev) =>
-        prev.some((u) => u.id === newUser.id) ? prev : [newUser, ...prev]
-      );
-      appendSessionAuditPreview(
-        'EMPLOYEE_PROVISIONED',
-        uid,
-        `Provisioned employee ${cleanName} (${cleanEmail}) with canonical role="${newEmployeeRole}" (${rbacGroup}).`
-      );
-      setShowInviteModal(false);
-      setActionSuccessMsg(
-        rtdbRes.persistedToRtdb
-          ? `Provisioned ${cleanEmail} with canonical role="${newEmployeeRole}" (${rbacGroup}) and accountStatus="active".`
-          : `[Preview Session Mode — Sign in as Super Admin for live Admin SDK provisioning] Provisioned ${cleanEmail} with canonical role="${newEmployeeRole}" (${rbacGroup}).`
-      );
-      setTimeout(() => setActionSuccessMsg(null), 5000);
-
-      setNewEmployeeName('');
-      setNewEmployeeEmail('');
     } finally {
       setIsSubmittingInvite(false);
     }

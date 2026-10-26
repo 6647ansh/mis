@@ -1904,7 +1904,7 @@ export function mapFirestoreDocToDashboardKpis(
     materialShortagesCount: doc.lowStockAlertsCount ?? fallback.materialShortagesCount,
     qualityPendingCount: fallback.qualityPendingCount,
     dispatchPendingQty: fallback.dispatchPendingQty,
-    monthlySalesTarget: fallback.monthlySalesTarget,
+    monthlySalesTarget: doc.monthlySalesTarget ?? fallback.monthlySalesTarget,
     monthlySalesAchieved: doc.totalOrderBookValue ?? fallback.monthlySalesAchieved,
     totalOutstanding: doc.totalOutstandingINR ?? fallback.totalOutstanding,
     overdueOrdersCount: doc.delayedOrdersCount ?? fallback.overdueOrdersCount,

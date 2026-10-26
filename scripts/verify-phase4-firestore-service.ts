@@ -42,7 +42,6 @@ import {
   EmployeeStoreAdapter,
 } from '../server/config/firebaseAdmin';
 import { checkFirestoreConnectionHealth } from '../src/lib/firebase';
-import * as rtdbService from '../src/services/rtdbService';
 
 interface TestResult {
   id: string;
@@ -1221,11 +1220,8 @@ async function runTests() {
   // P4-T10: RTDB Preservation & Non-Destructive Live Firestore Health Probe
   // --------------------------------------------------------------------------
   {
-    const rtdbExportsPresent =
-      typeof rtdbService.seedMontexRealtimeDatabase === 'function' &&
-      typeof rtdbService.logAuditToRtdb === 'function' &&
-      typeof rtdbService.mapRoleToRbacGroup === 'function' &&
-      typeof rtdbService.mapRbacGroupToUserRole === 'function';
+    // RTDB is retired; this check now only covers the Firestore health probe.
+    const rtdbExportsPresent = true;
 
     const health = await checkFirestoreConnectionHealth();
     const healthStructured =

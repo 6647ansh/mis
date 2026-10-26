@@ -203,7 +203,7 @@ service cloud.firestore {
         'maxRejectionThresholdPct', 'totalOutstandingINR', 'overdueReceivablesINR',
         'fpyPercentage', 'reworkTons', 'scrapPct', 'ncrCount',
         'Low_Stock_Threshold_Tons', 'Delay_Threshold_Days', 'Rejection_Rate_Max_Pct',
-        'Payment_Overdue_Days', 'updatedBy', 'updatedAt', 'dataOrigin'
+        'Payment_Overdue_Days', 'monthlySalesTarget', 'updatedBy', 'updatedAt', 'dataOrigin'
       ]) &&
       data.configId is string && data.configId == configId &&
       data.configId in ['dashboardKpis', 'productionSummary', 'alertThresholds', 'connection_probe'] &&
@@ -219,6 +219,7 @@ service cloud.firestore {
       (!('Delay_Threshold_Days' in data) || (data.Delay_Threshold_Days is number && data.Delay_Threshold_Days >= 0)) &&
       (!('Rejection_Rate_Max_Pct' in data) || (data.Rejection_Rate_Max_Pct is number && data.Rejection_Rate_Max_Pct >= 0 && data.Rejection_Rate_Max_Pct <= 100)) &&
       (!('Payment_Overdue_Days' in data) || (data.Payment_Overdue_Days is number && data.Payment_Overdue_Days >= 0)) &&
+      (!('monthlySalesTarget' in data) || (configId == 'dashboardKpis' && data.monthlySalesTarget is number && data.monthlySalesTarget > 0)) &&
       isValidDataOrigin(data);
     }
 
@@ -1133,7 +1134,7 @@ service cloud.firestore {
       allow create: if isActiveUser() && isValidId(configId) && isValidSystemConfig(incoming(), configId) && (
         isSuperAdmin() ||
         isCeo() ||
-        (configId in ['dashboardKpis', 'productionSummary'])
+        (configId in ['dashboardKpis', 'productionSummary'] && !('monthlySalesTarget' in incoming()))
       );
       allow update: if isActiveUser() && isValidId(configId) && isValidSystemConfig(incoming(), configId) && (
         isSuperAdmin() ||
@@ -1141,7 +1142,9 @@ service cloud.firestore {
         (
           configId in ['dashboardKpis', 'productionSummary'] &&
           incoming().configId == existing().configId &&
-          incoming().configType == existing().configType
+          incoming().configType == existing().configType &&
+          // Only the CEO or Super Admin may set the monthly sales target.
+          !incoming().diff(existing()).affectedKeys().hasAny(['monthlySalesTarget'])
         )
       );
       allow delete: if false;

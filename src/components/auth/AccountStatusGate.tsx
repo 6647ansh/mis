@@ -28,7 +28,7 @@ type GateStatus = keyof typeof COPY;
 
 /** Shown to a signed-in employee whose account is not active. No business data is loaded here. */
 export function AccountStatusGate() {
-  const { firebaseUser, currentUser, logoutUser, refreshOwnUserProfile } = useRtdb();
+  const { firebaseUser, currentUser, logoutUser, refreshOwnUserProfile, rtdbError } = useRtdb();
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -46,7 +46,7 @@ export function AccountStatusGate() {
     if (!res.success) {
       setNote('Could not check your status right now. Check your connection and try again.');
     } else if (res.profile && res.profile.accountStatus !== 'active') {
-      setNote(`Checked just now. No change yet.`);
+      setNote('Checked just now. No change yet.');
     }
   };
 
@@ -80,6 +80,11 @@ export function AccountStatusGate() {
             )}
           </dl>
 
+          {rtdbError && !note && (
+            <p role="alert" className="mt-4 text-sm text-rose-700">
+              {rtdbError}
+            </p>
+          )}
           {note && (
             <p role="status" className="mt-4 text-sm text-slate-600">
               {note}

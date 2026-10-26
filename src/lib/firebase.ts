@@ -1,6 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
-import { getDatabase, Database } from 'firebase/database';
 import {
   getFirestore,
   Firestore,
@@ -74,9 +73,6 @@ export const app: FirebaseApp =
 export const auth: Auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Connect to Firebase Realtime Database using getDatabase(app, databaseURL)
-// Kept initialized and operational during Phase 2 until services are migrated in Phase 4
-export const rtdb: Database = getDatabase(app, databaseURL);
 
 // Initialize Cloud Firestore using the project's configured named database ID
 function initFirestoreInstance(

@@ -2512,6 +2512,61 @@ export class MontexCutoverEngine {
     };
   }
 
+  async saveMonthlySalesTarget(
+    targetInr: number,
+    user: UserProfile
+  ): Promise<CutoverWriteResult<{ monthlySalesTarget: number }>> {
+    const authCheck = this.verifyRoleWrite(
+      user,
+      'systemConfig',
+      ['super_admin', 'ceo'],
+      'update the monthly sales target'
+    );
+    if (!authCheck.allowed) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: authCheck.code,
+        error: authCheck.error,
+      };
+    }
+
+    const res = await this.fs.setDocument(
+      'systemConfig',
+      'dashboardKpis',
+      {
+        configId: 'dashboardKpis',
+        configType: 'dashboardKpis',
+        monthlySalesTarget: targetInr,
+        updatedBy: user.id,
+        updatedAt: new Date().toISOString(),
+        dataOrigin: 'production',
+      } as FirestoreSystemConfigDoc,
+      {
+        merge: true,
+        auditAction: 'MONTHLY_SALES_TARGET_UPDATED',
+        auditDetails: `Monthly sales target set to INR ${targetInr}`,
+      }
+    );
+    if (!res.success) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: res.code,
+        error: res.message,
+      };
+    }
+    return {
+      success: true,
+      persistedToFirestore: true,
+      persistedToRtdb: false,
+      code: 'OK',
+      data: { monthlySalesTarget: targetInr },
+    };
+  }
+
   async saveAlertThresholds(
     thresholds: RtdbAlertThresholds,
     user: UserProfile,

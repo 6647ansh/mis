@@ -17,6 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   ALL_FIRESTORE_COLLECTIONS,
   FirestoreCollectionName,
@@ -54,7 +55,6 @@ import {
   TenderRecord,
   UserProfile,
 } from '../src/types/mis';
-import * as rtdbService from '../src/services/rtdbService';
 
 interface TestResult {
   id: string;
@@ -1223,24 +1223,28 @@ async function runPhase5Verification(): Promise<void> {
   }
 
   // --------------------------------------------------------------------------
-  // SUITE 10: ROLLBACK READINESS & RTDB SERVICE PRESERVATION
+  // SUITE 10: REALTIME DATABASE RETIRED (Firestore is the only source of truth)
   // --------------------------------------------------------------------------
   {
-    const rtdbExportsIntact =
-      typeof rtdbService.DEFAULT_DASHBOARD_KPIS === 'object' &&
-      typeof rtdbService.createSalesOrderInRtdb === 'function' &&
-      typeof rtdbService.updateSalesOrderInRtdb === 'function' &&
-      typeof rtdbService.recordStockMovementInRtdb === 'function' &&
-      typeof rtdbService.recordQualityInspectionInRtdb === 'function' &&
-      typeof rtdbService.recordDispatchInRtdb === 'function' &&
-      typeof rtdbService.recordCustomerPaymentInRtdb === 'function';
+    const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(ts|tsx)$/.test(entry.name) && fs.readFileSync(full, 'utf8').includes("'firebase/database'")) {
+          offenders.push(path.relative(srcRoot, full));
+        }
+      }
+    };
+    walk(srcRoot);
 
     recordResult(
       'P5-T10',
-      'Rollback Readiness',
-      'src/services/rtdbService.ts exports remain intact for controlled rollback if required',
-      rtdbExportsIntact,
-      `rtdbExportsIntact=${rtdbExportsIntact}`
+      'Realtime Database Retired',
+      'No browser module imports firebase/database; all reads and writes go through Cloud Firestore',
+      offenders.length === 0,
+      offenders.length === 0 ? 'no RTDB imports in src/' : `RTDB still imported by: ${offenders.join(', ')}`
     );
   }
 

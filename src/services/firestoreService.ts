@@ -615,6 +615,8 @@ export interface FirestoreSystemConfigDoc {
   Delay_Threshold_Days?: number;
   Rejection_Rate_Max_Pct?: number;
   Payment_Overdue_Days?: number;
+  /** Monthly sales target in INR, set by the CEO or Super Admin (dashboardKpis only). */
+  monthlySalesTarget?: number;
   updatedBy?: string;
   updatedAt: string;
   dataOrigin?: DataRecordOrigin;

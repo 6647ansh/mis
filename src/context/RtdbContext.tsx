@@ -6,9 +6,8 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth';
-import { ref, onValue, set, get, remove, Unsubscribe } from 'firebase/database';
 import { doc as fsDocRef, onSnapshot as onFirestoreSnapshot } from 'firebase/firestore';
-import { auth, rtdb, firestore, googleProvider, isFirestoreConfigured } from '../lib/firebase';
+import { auth, firestore, googleProvider, isFirestoreConfigured } from '../lib/firebase';
 import {
   canRoleReadCollection,
   canActorVerifyDepartmentTask,
@@ -55,50 +54,9 @@ import {
   ROLE_PERMISSION_DEFAULTS,
   isCanonicalUserRole,
 } from '../types/mis';
+import { INITIAL_ROLE_DUTY_MANUALS } from '../data/requirementsRegister';
 import {
-  MOCK_ORDER_JOURNEYS,
-  MOCK_RAW_MATERIALS,
-  MOCK_STOCK_MOVEMENTS,
-  MOCK_ACTION_QUEUE,
-  MOCK_OUTSTANDING_AGEING,
-  MOCK_CUSTOMERS,
-  MOCK_PRODUCTS,
-  PROTOTYPE_USERS,
-  MOCK_AUDIT_LOGS,
-} from '../data/mockData';
-import {
-  INITIAL_QUOTATIONS,
-  INITIAL_TENDERS,
-  INITIAL_PURCHASE_ORDERS,
-  INITIAL_SHOP_MACHINE_LOGS,
-  INITIAL_FURNACE_BATCH_LOGS as INITIAL_FURNACE_LOGS,
-  INITIAL_MAINTENANCE_TICKETS,
-  INITIAL_POWER_LOGS,
-  INITIAL_DIMENSIONAL_REPORTS,
-  INITIAL_STEEL_MILLS,
-  INITIAL_JOB_COST_SHEETS,
-  INITIAL_TASKS,
-  INITIAL_HANDOVERS,
-  INITIAL_PURCHASE_REQUISITIONS,
-  INITIAL_NCR_CAPA_RECORDS,
-  INITIAL_PAYMENT_FOLLOW_UPS,
-  INITIAL_PRE_RFQ_LEADS,
-  INITIAL_PPC_SCHEDULES,
-  INITIAL_ROLE_DUTY_MANUALS,
-} from '../data/requirementsRegister';
-import {
-  DEFAULT_DASHBOARD_KPIS,
-  DEFAULT_PRODUCTION_SUMMARY,
-  DEFAULT_ALERT_THRESHOLDS,
-  INITIAL_DISPATCHES,
-  INITIAL_QUALITY_INSPECTIONS,
-  recordToArray,
-  mapRoleToRbacGroup,
-  mapRbacGroupToUserRole,
-  seedMontexRealtimeDatabase,
-  adminUpdateEmployeeProfileInRtdb,
-} from '../services/rtdbService';
-import {
+  mapGranularRoleToRbacGroup as mapRoleToRbacGroup,
   resolveUserRoleMapping,
   normalizeRawMaterialWithComputedStatus,
 } from '../services/misDataValidator';
@@ -238,7 +196,6 @@ interface RtdbContextType {
   dataSource: 'live_rtdb' | 'fallback_seed';
   rtdbError: string | null;
   lastSyncedAt: string | null;
-  seedDatabase: () => Promise<{ success: boolean; message: string }>;
   refreshFirestoreSnapshot: () => Promise<void>;
 
   // Live MIS Data
@@ -457,7 +414,10 @@ interface RtdbContextType {
  * no permissions, so no protected module can render or read data for it.
  */
 const SIGNED_OUT_PROFILE: UserProfile = {
-  ...PROTOTYPE_USERS[0],
+  role: 'sales',
+  roleTitle: '',
+  department: '',
+  createdAt: '',
   id: '',
   uid: '',
   name: '',
@@ -504,66 +464,58 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ? 'demo_sandbox'
     : DATA_BACKEND_MODE;
 
-  // Live MIS states initialized with demo fixtures ONLY for unauthenticated preview mode
+  // Business data starts empty and is filled only from Firestore for an active employee.
   const [dashboardKpis, setDashboardKpis] =
-    useState<RtdbDashboardKpis>(DEFAULT_DASHBOARD_KPIS);
+    useState<RtdbDashboardKpis>({ ...ZERO_DASHBOARD_KPIS });
   const [productionSummary, setProductionSummary] =
-    useState<RtdbProductionSummary>(DEFAULT_PRODUCTION_SUMMARY);
-  const [salesOrders, setSalesOrders] = useState<OrderJourney[]>(MOCK_ORDER_JOURNEYS);
+    useState<RtdbProductionSummary>({ ...ZERO_PRODUCTION_SUMMARY });
+  const [salesOrders, setSalesOrders] = useState<OrderJourney[]>([]);
   const [dispatches, setDispatches] =
-    useState<DispatchConsignmentRecord[]>(INITIAL_DISPATCHES);
-  const [qualityInspections, setQualityInspections] = useState<QualityInspectionRecord[]>(
-    INITIAL_QUALITY_INSPECTIONS
-  );
-  const [rawMaterials, setRawMaterials] = useState<RawMaterialStock[]>(() =>
-    MOCK_RAW_MATERIALS.map(normalizeRawMaterialWithComputedStatus)
-  );
+    useState<DispatchConsignmentRecord[]>([]);
+  const [qualityInspections, setQualityInspections] = useState<QualityInspectionRecord[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterialStock[]>([]);
   const [stockMovements, setStockMovements] =
-    useState<StockMovement[]>(MOCK_STOCK_MOVEMENTS);
-  const [actionQueue, setActionQueue] = useState<ActionQueueItem[]>(MOCK_ACTION_QUEUE);
+    useState<StockMovement[]>([]);
+  const [actionQueue, setActionQueue] = useState<ActionQueueItem[]>([]);
   const [alertThresholds, setAlertThresholds] =
-    useState<RtdbAlertThresholds>(DEFAULT_ALERT_THRESHOLDS);
+    useState<RtdbAlertThresholds>({ ...DEFAULT_CLEAN_ALERT_THRESHOLDS });
   const [outstandingAgeing, setOutstandingAgeing] =
-    useState<OutstandingAgeingRecord[]>(MOCK_OUTSTANDING_AGEING);
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
-  const [suppliers, setSuppliers] = useState<SteelMillSupplier[]>(INITIAL_STEEL_MILLS);
+    useState<OutstandingAgeingRecord[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<SteelMillSupplier[]>([]);
   const [jobCostSheets, setJobCostSheets] =
-    useState<JobCostSheet[]>(INITIAL_JOB_COST_SHEETS);
-  const [usersList, setUsersList] = useState<UserProfile[]>(PROTOTYPE_USERS);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(MOCK_AUDIT_LOGS);
+    useState<JobCostSheet[]>([]);
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
 
   // All 8 Persistent Operational Registers
-  const [quotations, setQuotations] = useState<QuotationRecord[]>(INITIAL_QUOTATIONS);
-  const [tenders, setTenders] = useState<TenderRecord[]>(INITIAL_TENDERS);
+  const [quotations, setQuotations] = useState<QuotationRecord[]>([]);
+  const [tenders, setTenders] = useState<TenderRecord[]>([]);
   const [purchaseOrders, setPurchaseOrders] =
-    useState<PurchaseOrderRecord[]>(INITIAL_PURCHASE_ORDERS);
+    useState<PurchaseOrderRecord[]>([]);
   const [machineLogs, setMachineLogs] =
-    useState<ShopMachineLog[]>(INITIAL_SHOP_MACHINE_LOGS);
+    useState<ShopMachineLog[]>([]);
   const [furnaceLogs, setFurnaceLogs] =
-    useState<FurnaceBatchLog[]>(INITIAL_FURNACE_LOGS);
+    useState<FurnaceBatchLog[]>([]);
   const [maintenanceTickets, setMaintenanceTickets] = useState<
     MachineMaintenanceTicket[]
-  >(INITIAL_MAINTENANCE_TICKETS);
-  const [powerLogs, setPowerLogs] = useState<PowerConsumptionLog[]>(INITIAL_POWER_LOGS);
+  >([]);
+  const [powerLogs, setPowerLogs] = useState<PowerConsumptionLog[]>([]);
   const [dimensionalReports, setDimensionalReports] = useState<
     DimensionalInspectionReport[]
-  >(INITIAL_DIMENSIONAL_REPORTS);
-  const [tasks, setTasks] = useState<TaskRecord[]>(INITIAL_TASKS);
-  const [handovers, setHandovers] = useState<HandoverRecord[]>(INITIAL_HANDOVERS);
+  >([]);
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [handovers, setHandovers] = useState<HandoverRecord[]>([]);
   const [purchaseRequisitions, setPurchaseRequisitions] = useState<
     PurchaseRequisitionRecord[]
-  >(INITIAL_PURCHASE_REQUISITIONS);
-  const [ncrCapaRecords, setNcrCapaRecords] = useState<NcrCapaRecord[]>(
-    INITIAL_NCR_CAPA_RECORDS
-  );
-  const [paymentFollowUps, setPaymentFollowUps] = useState<PaymentFollowUpRecord[]>(
-    INITIAL_PAYMENT_FOLLOW_UPS
-  );
+  >([]);
+  const [ncrCapaRecords, setNcrCapaRecords] = useState<NcrCapaRecord[]>([]);
+  const [paymentFollowUps, setPaymentFollowUps] = useState<PaymentFollowUpRecord[]>([]);
   const [preRfqLeads, setPreRfqLeads] =
-    useState<PreRfqLeadRecord[]>(INITIAL_PRE_RFQ_LEADS);
+    useState<PreRfqLeadRecord[]>([]);
   const [ppcSchedules, setPpcSchedules] =
-    useState<PpcScheduleEntry[]>(INITIAL_PPC_SCHEDULES);
+    useState<PpcScheduleEntry[]>([]);
   const [roleDutyManuals] = useState<RoleDutySopChecklist[]>(INITIAL_ROLE_DUTY_MANUALS);
 
   const activeRbacGroup: RbacRoleGroup =
@@ -603,31 +555,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPpcSchedules([]);
   }, []);
 
-  const setPreviewUserRole = (user: UserProfile) => {
-    if (firebaseUser) return; // Never allow preview role switching when signed in to production
-    setCurrentUser({
-      ...user,
-      rbacGroup: user.rbacGroup || mapRoleToRbacGroup(user.role),
-    });
-  };
+  const setPreviewUserRole = (_user: UserProfile) => {};
 
-  const setActiveRbacGroup = (group: RbacRoleGroup) => {
-    if (firebaseUser) return; // Never allow client-side group spoofing when signed in
-    const mappedRole = mapRbacGroupToUserRole(group);
-    const matchingPersona =
-      usersList.find(
-        (u) => mapRoleToRbacGroup(u.role) === group && u.accountStatus === 'active'
-      ) ||
-      PROTOTYPE_USERS.find((u) => mapRoleToRbacGroup(u.role) === group) ||
-      currentUser;
 
-    setCurrentUser({
-      ...matchingPersona,
-      role: mappedRole,
-      rbacGroup: group,
-      roleTitle: `${group} (${matchingPersona.roleTitle})`,
-    });
-  };
+  // Role switching was a demo-only feature; roles now come only from the employee profile.
+  const setActiveRbacGroup = (_group: RbacRoleGroup) => {};
+
 
   const buildResolvedUserProfile = useCallback(
     (rawDoc: Record<string, any>, fallbackAuthUser: User): UserProfile => {
@@ -710,14 +643,9 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Monitor Firebase Authentication Session & Resolve Profile (/users/{uid} in Firestore primary)
   useEffect(() => {
-    let unsubOwnProfile: Unsubscribe | null = null;
     let unsubOwnFirestoreProfile: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      if (unsubOwnProfile) {
-        unsubOwnProfile();
-        unsubOwnProfile = null;
-      }
       if (unsubOwnFirestoreProfile) {
         unsubOwnFirestoreProfile();
         unsubOwnFirestoreProfile = null;
@@ -740,53 +668,37 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearProductionCollections();
 
       try {
-        let fsDoc: Record<string, any> | null = null;
-        let rtdbDoc: Record<string, any> | null = null;
-
-        // 1. Try Cloud Firestore /users/{uid}
-        if (isFirestoreConfigured && DATA_BACKEND_MODE === 'firestore') {
-          const fsProfileRes = await firestoreService.getUserProfile(user.uid);
-          if (fsProfileRes.success && fsProfileRes.data) {
-            fsDoc = fsProfileRes.data;
-          }
-        }
-
-        // 2. Also check RTDB /users/{uid} so RTDB-only or newly updated records are reconciled
-        try {
-          const ownProfileRef = ref(rtdb, `users/${user.uid}`);
-          const rtdbSnap = await get(ownProfileRef);
-          if (rtdbSnap.exists()) {
-            rtdbDoc = rtdbSnap.val();
-          }
-        } catch {
-          // Ignore RTDB read error if offline
-        }
-
+        const fsProfileRes = await firestoreService.getUserProfile(user.uid);
         const normalizedAuthEmail = (user.email || '').trim().toLowerCase();
         const isBootstrapSuperAdminOwner =
-          normalizedAuthEmail === 'anshyadav6647@gmail.com' &&
-          user.emailVerified === true;
+          normalizedAuthEmail === 'anshyadav6647@gmail.com' && user.emailVerified === true;
 
-        if (fsDoc || rtdbDoc) {
-          // Merge RTDB and Firestore with timestamp-aware precedence so newer approvals/rejections/deactivations in either store win
-          const mergedRaw: Record<string, any> = {
-            ...(rtdbDoc || {}),
-            ...(fsDoc || {}),
-          };
-          const rtdbUpdated = String(rtdbDoc?.updatedAt || '');
-          const fsUpdated = String(fsDoc?.updatedAt || '');
-          const rtdbIsNewer = Boolean(rtdbDoc && rtdbUpdated && (!fsUpdated || rtdbUpdated > fsUpdated));
-          const rtdbResolvedWhileFsPending = Boolean(
-            rtdbDoc?.accountStatus &&
-              rtdbDoc.accountStatus !== 'pending_approval' &&
-              fsDoc?.accountStatus === 'pending_approval' &&
-              (!fsUpdated || !rtdbUpdated || rtdbUpdated >= fsUpdated)
+        if (!fsProfileRes.success) {
+          // Never create or rewrite a profile after a failed read. Firestore rules refuse an
+          // employee's own read only when the account is deactivated.
+          const denied = fsProfileRes.code === 'PERMISSION_DENIED' || /permission/i.test(fsProfileRes.message || '');
+          setCurrentUser({
+            ...SIGNED_OUT_PROFILE,
+            id: user.uid,
+            uid: user.uid,
+            email: normalizedAuthEmail,
+            name: user.displayName || '',
+            displayName: user.displayName || '',
+            accountStatus: denied ? 'deactivated' : 'pending_approval',
+          });
+          setRtdbError(
+            denied
+              ? null
+              : 'We could not load your account. Check your internet connection, then select "Check status".'
           );
-          if (rtdbIsNewer || rtdbResolvedWhileFsPending) {
-            Object.assign(mergedRaw, rtdbDoc);
-          }
+          setAuthLoading(false);
+          return;
+        }
+        setRtdbError(null);
+        const fsDoc: Record<string, any> | null = fsProfileRes.data ?? null;
 
-          let resolvedProfile = buildResolvedUserProfile(mergedRaw, user);
+        if (fsDoc) {
+          let resolvedProfile = buildResolvedUserProfile(fsDoc, user);
 
           // Ensure verified bootstrap Super Admin owner is never trapped in pending_approval unless explicitly deactivated
           if (
@@ -820,21 +732,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setCurrentUser(resolvedProfile);
 
-          // If active in RTDB/memory but missing or stale in Firestore, sync active profile to Firestore
-          if (
-            resolvedProfile.accountStatus === 'active' &&
-            (!fsDoc || fsDoc.accountStatus !== 'active')
-          ) {
-            firestoreService.syncOwnActiveProfileToFirestore(resolvedProfile).catch(() => {});
-          }
-          // If pending in RTDB but missing in Firestore, ensure pending request exists in Firestore
-          if (resolvedProfile.accountStatus === 'pending_approval' && !fsDoc && isFirestoreConfigured) {
-            firestoreService
-              .upsertSelfPendingAccessRequestToFirestore(
-                mapUserProfileToFirestoreDoc(resolvedProfile)
-              )
-              .catch(() => {});
-          }
         } else if (isBootstrapSuperAdminOwner) {
           // Verified bootstrap Super Admin signing in with no existing document: bootstrap active super_admin profile
           const displayName =
@@ -882,7 +779,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
             firestoreService.syncOwnActiveProfileToFirestore(ownerProfile).catch(() => {});
           }
         } else {
-          // Profile does not exist in Firestore or RTDB yet — create a canonical pending_approval request
+          // No profile in Firestore yet — create a canonical pending_approval request
           // so the employee immediately appears in the Super Admin Employee Approval Queue, with ZERO permissions.
           const displayName =
             user.displayName || user.email?.split('@')[0] || 'Pending Employee';
@@ -929,38 +826,13 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setCurrentUser(autoPendingProfile);
 
-          // Persist to Firestore & RTDB as pending_approval (never active!) so Admin Approval Queue sees it
+          // Persist as pending_approval (never active) so the approval queue sees it
           if (isFirestoreConfigured) {
             firestoreService
               .upsertSelfPendingAccessRequestToFirestore(
                 mapUserProfileToFirestoreDoc(autoPendingProfile)
               )
               .catch(() => {});
-          }
-          try {
-            await set(ref(rtdb, `users/${user.uid}`), {
-              id: user.uid,
-              uid: user.uid,
-              name: displayName,
-              displayName,
-              email,
-              role: 'Unassigned',
-              legacyRole: 'sales',
-              requestedRole: 'sales',
-              requestedDepartment: 'Sales & Marketing',
-              rbacGroup: 'Sales',
-              roleTitle: autoPendingProfile.roleTitle,
-              department: 'Sales & Marketing',
-              avatarInitials: initials,
-              accountStatus: 'pending_approval',
-              createdAt: nowIso,
-              updatedAt: nowIso,
-              lastLoginAt: nowIso,
-              approvalHistory: autoPendingProfile.approvalHistory,
-              permissions: [],
-            });
-          } catch {
-            // Ignore if RTDB write blocked
           }
         }
 
@@ -974,8 +846,13 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const fsData = { id: docSnap.id, ...docSnap.data() };
                 setCurrentUser(buildResolvedUserProfile(fsData, user));
               },
-              () => {
-                // Ignore snapshot listener error if permissions change
+              (err) => {
+                // Rules stop an employee reading their own profile once it is deactivated:
+                // lock the session immediately instead of waiting for a reload.
+                if (String((err as any)?.code || '').includes('permission-denied')) {
+                  setCurrentUser((prev) => ({ ...prev, accountStatus: 'deactivated', permissions: [] }));
+                  clearProductionCollections();
+                }
               }
             );
           } catch {
@@ -983,36 +860,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Subscribe to real-time updates on own RTDB user node so live Admin approvals reflect immediately
-        try {
-          unsubOwnProfile = onValue(ref(rtdb, `users/${user.uid}`), async (snap) => {
-            if (!snap.exists()) return;
-            const rtdbVal = snap.val();
-            let latestFs: Record<string, any> | null = null;
-            if (isFirestoreConfigured && DATA_BACKEND_MODE === 'firestore') {
-              const fsCheck = await firestoreService.getUserProfile(user.uid).catch(() => null);
-              if (fsCheck?.success && fsCheck.data) {
-                latestFs = fsCheck.data;
-              }
-            }
-            const combined = {
-              ...rtdbVal,
-              ...(latestFs || {}),
-            };
-            if (
-              rtdbVal?.accountStatus &&
-              latestFs?.accountStatus &&
-              rtdbVal.updatedAt &&
-              latestFs.updatedAt &&
-              String(rtdbVal.updatedAt) > String(latestFs.updatedAt)
-            ) {
-              Object.assign(combined, rtdbVal);
-            }
-            setCurrentUser(buildResolvedUserProfile(combined, user));
-          });
-        } catch {
-          // Ignore listener error
-        }
       } catch {
         setCurrentUser({
           id: user.uid,
@@ -1035,7 +882,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
-      if (unsubOwnProfile) unsubOwnProfile();
       if (unsubOwnFirestoreProfile) unsubOwnFirestoreProfile();
       unsubAuth();
     };
@@ -1049,40 +895,19 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const role = currentUser.role;
     const unresolvedWarnings = new Set<string>(snap.warnings);
 
-    // Live Authenticated RTDB–Firestore Reconciliation (R-1 Fix):
-    // Reconciles Cloud Firestore records and Firebase Realtime Database records by ID
-    // with Firestore precedence, so RTDB-only records never disappear when Firestore
-    // contains a partial subset of records.
-    // NEVER falls back to MOCK_* or demo sandbox fixtures!
+    // Firestore is the only source of truth; RTDB is no longer read or merged.
     const readLiveRtdbArrayIfPermitted = async <T extends Record<string, any>>(
       collectionKey: Parameters<typeof canRoleReadCollection>[1],
-      rtdbPath: string,
+      _legacyRtdbPath: string,
       firestoreItems: T[],
       warningPrefix: string,
-      idField: keyof T = 'id' as keyof T
+      _idField?: keyof T
     ): Promise<T[]> => {
       if (!canRoleReadCollection(role, collectionKey)) {
         unresolvedWarnings.delete(warningPrefix);
         return [];
       }
-      try {
-        const rtdbSnap = await get(ref(rtdb, rtdbPath));
-        for (const w of Array.from(unresolvedWarnings)) {
-          if (w.startsWith(`/${collectionKey}:`)) {
-            unresolvedWarnings.delete(w);
-          }
-        }
-        const rtdbItems = rtdbSnap.exists() ? recordToArray<T>(rtdbSnap.val(), []) : [];
-        if (firestoreItems.length === 0) {
-          return rtdbItems;
-        }
-        if (rtdbItems.length === 0) {
-          return firestoreItems;
-        }
-        return reconcileRecordsById<T>(firestoreItems, rtdbItems, idField);
-      } catch {
-        return firestoreItems;
-      }
+      return firestoreItems;
     };
 
     const [
@@ -1292,7 +1117,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [firebaseUser, currentUser]);
 
-  // Load Authorized Data from Cloud Firestore (Primary) or RTDB (Rollback)
+  // Load authorized data from Cloud Firestore
   useEffect(() => {
     if (!firebaseUser) {
       setDataSource('fallback_seed');
@@ -1308,38 +1133,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    if (DATA_BACKEND_MODE === 'firestore' && isFirestoreConfigured) {
-      refreshFirestoreSnapshot();
-      return;
-    }
-
-    // Rollback Mode: RTDB listeners (still enforcing zero demo fallback when authenticated!)
-    const connectedRef = ref(rtdb, '.info/connected');
-    const unsubConnected = onValue(
-      connectedRef,
-      (snap) => setIsRtdbConnected(Boolean(snap.val())),
-      () => setIsRtdbConnected(false)
-    );
-    const unsubs: Unsubscribe[] = [unsubConnected];
-
-    unsubs.push(
-      onValue(ref(rtdb, 'salesOrders'), (snap) => {
-        setDataSource('live_rtdb');
-        setSalesOrders(snap.exists() ? recordToArray(snap.val(), []) : []);
-      })
-    );
-    unsubs.push(
-      onValue(ref(rtdb, 'inventory/rawMaterials'), (snap) => {
-        setRawMaterials(
-          snap.exists()
-            ? recordToArray(snap.val(), []).map(normalizeRawMaterialWithComputedStatus)
-            : []
-        );
-      })
-    );
-    return () => {
-      unsubs.forEach((u) => u());
-    };
+    setDataSource('live_rtdb');
+    refreshFirestoreSnapshot();
   }, [
     firebaseUser,
     currentUser,
@@ -1651,53 +1446,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     if (res.success && res.data) {
       const saved = res.data;
-      if (!isDemoMode && firebaseUser) {
-        set(ref(rtdb, `customers/${saved.id}`), saved).catch(() => {});
-      }
       setCustomers((prev) =>
         isNew ? [saved, ...prev] : prev.map((c) => (c.id === saved.id ? saved : c))
       );
       return res;
     }
 
-    // If caller is authorized in live session, but Cloud Firestore rule deployment is still pending,
-    // persist to live authenticated Firebase Realtime Database (/customers/{id}) and verify write.
-    const canWriteCustomerLive =
-      !isDemoMode &&
-      Boolean(firebaseUser) &&
-      currentUser.accountStatus === 'active' &&
-      ['super_admin', 'ceo', 'sales', 'finance'].includes(currentUser.role);
-
-    if (canWriteCustomerLive && res.code === 'PERMISSION_DENIED') {
-      try {
-        const custRef = ref(rtdb, `customers/${customer.id}`);
-        await set(custRef, customer);
-        const verifySnap = await get(custRef);
-        if (verifySnap.exists()) {
-          const verifiedCustomer = verifySnap.val() as Customer;
-          setCustomers((prev) =>
-            isNew
-              ? [verifiedCustomer, ...prev]
-              : prev.map((c) => (c.id === verifiedCustomer.id ? verifiedCustomer : c))
-          );
-          return {
-            success: true,
-            persistedToFirestore: false,
-            persistedToRtdb: true,
-            code: 'PERSISTED_TO_LIVE_RTDB',
-            data: verifiedCustomer,
-          };
-        }
-      } catch (rtdbErr: any) {
-        return {
-          success: false,
-          persistedToFirestore: false,
-          persistedToRtdb: false,
-          code: 'PERMISSION_DENIED',
-          error: rtdbErr?.message || res.error,
-        };
-      }
-    }
     return res;
   };
 
@@ -1710,51 +1464,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     if (res.success && res.data) {
       const saved = res.data;
-      if (!isDemoMode && firebaseUser) {
-        set(ref(rtdb, `products/${saved.id}`), saved).catch(() => {});
-      }
       setProducts((prev) =>
         isNew ? [saved, ...prev] : prev.map((p) => (p.id === saved.id ? saved : p))
       );
       return res;
     }
 
-    const canWriteProductLive =
-      !isDemoMode &&
-      Boolean(firebaseUser) &&
-      currentUser.accountStatus === 'active' &&
-      ['super_admin', 'ceo', 'sales', 'quality'].includes(currentUser.role);
-
-    if (canWriteProductLive && res.code === 'PERMISSION_DENIED') {
-      try {
-        const prodRef = ref(rtdb, `products/${product.id}`);
-        await set(prodRef, product);
-        const verifySnap = await get(prodRef);
-        if (verifySnap.exists()) {
-          const verifiedProduct = verifySnap.val() as Product;
-          setProducts((prev) =>
-            isNew
-              ? [verifiedProduct, ...prev]
-              : prev.map((p) => (p.id === verifiedProduct.id ? verifiedProduct : p))
-          );
-          return {
-            success: true,
-            persistedToFirestore: false,
-            persistedToRtdb: true,
-            code: 'PERSISTED_TO_LIVE_RTDB',
-            data: verifiedProduct,
-          };
-        }
-      } catch (rtdbErr: any) {
-        return {
-          success: false,
-          persistedToFirestore: false,
-          persistedToRtdb: false,
-          code: 'PERMISSION_DENIED',
-          error: rtdbErr?.message || res.error,
-        };
-      }
-    }
     return res;
   };
 
@@ -1787,39 +1502,10 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isDemoMode
     );
     if (res.success) {
-      if (!isDemoMode && firebaseUser) {
-        remove(ref(rtdb, `customers/${customerId}`)).catch(() => {});
-      }
       setCustomers((prev) => prev.filter((c) => c.id !== customerId));
       return res;
     }
 
-    const canDeleteLive =
-      !isDemoMode &&
-      Boolean(firebaseUser) &&
-      currentUser.accountStatus === 'active' &&
-      ['super_admin', 'ceo'].includes(currentUser.role) &&
-      activeOrdersCount === 0 &&
-      (targetCustomer.totalOutstanding || 0) <= 0;
-
-    if (
-      canDeleteLive &&
-      (res.code === 'PERMISSION_DENIED' || res.code === 'FIRESTORE_OPERATION_FAILED')
-    ) {
-      try {
-        await remove(ref(rtdb, `customers/${customerId}`));
-        setCustomers((prev) => prev.filter((c) => c.id !== customerId));
-        return {
-          success: true,
-          persistedToFirestore: false,
-          persistedToRtdb: true,
-          code: 'DELETED_FROM_LIVE_RTDB',
-          data: { deletedId: customerId },
-        };
-      } catch {
-        return res;
-      }
-    }
     return res;
   };
 
@@ -1851,38 +1537,10 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isDemoMode
     );
     if (res.success) {
-      if (!isDemoMode && firebaseUser) {
-        remove(ref(rtdb, `products/${productId}`)).catch(() => {});
-      }
       setProducts((prev) => prev.filter((p) => p.id !== productId));
       return res;
     }
 
-    const canDeleteLive =
-      !isDemoMode &&
-      Boolean(firebaseUser) &&
-      currentUser.accountStatus === 'active' &&
-      ['super_admin', 'ceo'].includes(currentUser.role) &&
-      activeOrdersCount === 0;
-
-    if (
-      canDeleteLive &&
-      (res.code === 'PERMISSION_DENIED' || res.code === 'FIRESTORE_OPERATION_FAILED')
-    ) {
-      try {
-        await remove(ref(rtdb, `products/${productId}`));
-        setProducts((prev) => prev.filter((p) => p.id !== productId));
-        return {
-          success: true,
-          persistedToFirestore: false,
-          persistedToRtdb: true,
-          code: 'DELETED_FROM_LIVE_RTDB',
-          data: { deletedId: productId },
-        };
-      } catch {
-        return res;
-      }
-    }
     return res;
   };
 
@@ -2200,25 +1858,26 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    const updatedKpis: RtdbDashboardKpis = {
-      ...dashboardKpis,
+    // Save first; show the new target only after Firestore accepts it.
+    const res = await cutoverEngine.saveMonthlySalesTarget(newTargetInr, currentUser);
+    if (!res.success) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: res.code,
+        error: res.error || 'The monthly sales target could not be saved. Please try again.',
+      };
+    }
+    setDashboardKpis((prev) => ({
+      ...prev,
       monthlySalesTarget: newTargetInr,
       lastUpdated: new Date().toISOString(),
-    };
-    setDashboardKpis(updatedKpis);
-
-    if (!isDemoMode && firebaseUser) {
-      try {
-        await set(ref(rtdb, 'dashboardKpis'), updatedKpis);
-      } catch {
-        // Ignore if RTDB write not needed
-      }
-    }
-
+    }));
     return {
       success: true,
-      persistedToFirestore: !isDemoMode,
-      persistedToRtdb: !isDemoMode,
+      persistedToFirestore: true,
+      persistedToRtdb: false,
       code: 'OK',
       data: { monthlySalesTarget: newTargetInr },
     };
@@ -2411,35 +2070,15 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       designation: updatedPendingProfile.designation,
     }).catch(() => null);
 
-    let fsSaved = false;
-    let rtdbSaved = false;
-
-    if (isFirestoreConfigured) {
-      const fsRes = await firestoreService
-        .upsertSelfPendingAccessRequestToFirestore(
-          mapUserProfileToFirestoreDoc(updatedPendingProfile)
-        )
-        .catch(() => null);
-      if (fsRes?.success) {
-        fsSaved = true;
-      }
-    }
-
-    try {
-      await set(ref(rtdb, `users/${targetUid}`), {
-        ...updatedPendingProfile,
-        role: 'Unassigned',
-        legacyRole: safeRole,
-      });
-      rtdbSaved = true;
-    } catch {
-      // Ignore RTDB write failure if Firestore succeeded
-    }
-
-    if (!fsSaved && !rtdbSaved && !isDemoMode) {
+    const fsRes = await firestoreService
+      .upsertSelfPendingAccessRequestToFirestore(
+        mapUserProfileToFirestoreDoc(updatedPendingProfile)
+      )
+      .catch(() => null);
+    if (!fsRes?.success) {
       return {
         success: false,
-        error: 'Failed to persist access request to database. Please check your connection or permissions.',
+        error: 'Your access request could not be saved. Check your connection, then try again.',
       };
     }
 
@@ -2466,45 +2105,20 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      let fsDoc: Record<string, any> | null = null;
-      let rtdbDoc: Record<string, any> | null = null;
-
-      if (isFirestoreConfigured) {
-        const fsRes = await firestoreService.getUserProfile(activeAuthUser.uid);
-        if (fsRes.success && fsRes.data) {
-          fsDoc = fsRes.data;
+      const fsRes = await firestoreService.getUserProfile(activeAuthUser.uid);
+      if (!fsRes.success) {
+        if (fsRes.code === 'PERMISSION_DENIED') {
+          // Own-profile reads are refused only for deactivated accounts.
+          setCurrentUser((prev) => ({ ...prev, accountStatus: 'deactivated', permissions: [] }));
+          return { success: true, profile: { ...currentUser, accountStatus: 'deactivated' as const } };
         }
+        return { success: false, error: 'Could not reach the server. Check your connection, then try again.' };
       }
-
-      try {
-        const rtdbSnap = await get(ref(rtdb, `users/${activeAuthUser.uid}`));
-        if (rtdbSnap.exists()) {
-          rtdbDoc = rtdbSnap.val();
-        }
-      } catch {
-        // Ignore RTDB error
+      if (!fsRes.data) {
+        return { success: false, error: 'No employee profile was found for this account.' };
       }
-
-      if (!fsDoc && !rtdbDoc) {
-        return {
-          success: false,
-          error: 'No employee profile found in /users/{uid}. Please submit your access request.',
-        };
-      }
-
-      const combined: Record<string, any> = {
-        ...(rtdbDoc || {}),
-        ...(fsDoc || {}),
-      };
-      if (
-        rtdbDoc?.accountStatus &&
-        fsDoc?.accountStatus &&
-        rtdbDoc.updatedAt &&
-        fsDoc.updatedAt &&
-        String(rtdbDoc.updatedAt) > String(fsDoc.updatedAt)
-      ) {
-        Object.assign(combined, rtdbDoc);
-      }
+      setRtdbError(null);
+      const combined: Record<string, any> = fsRes.data;
 
       const resolvedProfile = buildResolvedUserProfile(combined, activeAuthUser);
       setCurrentUser(resolvedProfile);
@@ -2746,47 +2360,13 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    if (!isDemoMode) {
-      const rtdbWrite = await adminUpdateEmployeeProfileInRtdb(
-        approvedProfile,
-        rbacGroup,
-        'active',
-        {
-          legacyRole: input.role,
-          role: input.role,
-          department: approvedProfile.department,
-          designation: approvedProfile.designation,
-          roleTitle: approvedProfile.roleTitle,
-          isDepartmentHead: approvedProfile.isDepartmentHead,
-          managedDepartment: approvedProfile.managedDepartment,
-          approvedByUid: actorUid,
-          approvedByEmail: actorEmail,
-          approvedByName: actorName,
-          approvedAt: nowIso,
-          approvalHistory: approvedProfile.approvalHistory,
-          permissions: approvedProfile.permissions,
-        },
-        {
-          ...currentUser,
-          uid: actorUid,
-          id: actorUid,
-          email: actorEmail || currentUser.email,
-        }
-      );
-      if (rtdbWrite.success && rtdbWrite.persistedToRtdb) {
-        persistedToRtdb = true;
-      } else if (rtdbWrite.error && !lastError) {
-        lastError = rtdbWrite.error;
-      }
-    }
-
     if (!isDemoMode && !persistedToFirestore && !persistedToRtdb) {
       return {
         success: false,
         code: 'DATABASE_WRITE_FAILED',
         error:
           lastError ||
-          'Database write failed: Unable to persist employee approval to Cloud Firestore or Realtime Database.',
+          'The approval could not be saved. Please try again; if it keeps failing, check the server connection.',
       };
     }
 
@@ -3006,48 +2586,13 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    if (!isDemoMode) {
-      const rtdbWrite = await adminUpdateEmployeeProfileInRtdb(
-        rejectedProfile,
-        rbacGroup,
-        'rejected',
-        {
-          legacyRole: safeRole,
-          role: safeRole,
-          department: cleanDept,
-          designation: cleanDesignation,
-          roleTitle: 'ACCESS REQUEST REJECTED',
-          isDepartmentHead: false,
-          managedDepartment: undefined,
-          rejectedByUid: actorUid,
-          rejectedByEmail: actorEmail,
-          rejectedByName: actorName,
-          rejectedAt: nowIso,
-          rejectionReason: cleanReason,
-          approvalHistory: rejectedProfile.approvalHistory,
-          permissions: [],
-        },
-        {
-          ...currentUser,
-          uid: actorUid,
-          id: actorUid,
-          email: actorEmail || currentUser.email,
-        }
-      );
-      if (rtdbWrite.success && rtdbWrite.persistedToRtdb) {
-        persistedToRtdb = true;
-      } else if (rtdbWrite.error && !lastError) {
-        lastError = rtdbWrite.error;
-      }
-    }
-
     if (!isDemoMode && !persistedToFirestore && !persistedToRtdb) {
       return {
         success: false,
         code: 'DATABASE_WRITE_FAILED',
         error:
           lastError ||
-          'Database write failed: Unable to persist employee rejection to Cloud Firestore or Realtime Database.',
+          'The rejection could not be saved. Please try again; if it keeps failing, check the server connection.',
       };
     }
 
@@ -3104,16 +2649,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
   };
 
-  const seedDatabase = async () => {
-    const res = await seedMontexRealtimeDatabase();
-    if (res.success) {
-      setDataSource('live_rtdb');
-      setRtdbError(null);
-      setLastSyncedAt(new Date().toLocaleTimeString());
-    }
-    return res;
-  };
-
   return (
     <RtdbContext.Provider
       value={{
@@ -3135,7 +2670,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         dataSource,
         rtdbError,
         lastSyncedAt,
-        seedDatabase,
         refreshFirestoreSnapshot,
         dashboardKpis,
         productionSummary,

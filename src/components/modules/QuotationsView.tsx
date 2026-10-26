@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
 import { OrderJourney, QuotationRecord, TenderRecord } from '../../types/mis';
-import { createSalesOrderInRtdb, logAuditToRtdb } from '../../services/rtdbService';
 import { StatusBadge } from '../common/StatusBadge';
 import {
   MontexPdfDocumentPayload,

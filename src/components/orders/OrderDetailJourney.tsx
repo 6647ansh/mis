@@ -13,7 +13,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { OrderJourney, OrderStatus } from '../../types/mis';
-import { MOCK_ORDER_JOURNEYS } from '../../data/mockData';
+
 import { StatusBadge } from '../common/StatusBadge';
 import { useRtdb } from '../../context/RtdbContext';
 import {
@@ -66,7 +66,7 @@ export const OrderDetailJourney: React.FC<OrderDetailJourneyProps> = ({
     }
   }, [initialOrderId]);
 
-  const ordersList = salesOrders.length > 0 ? salesOrders : isDemoMode ? MOCK_ORDER_JOURNEYS : [];
+  const ordersList = salesOrders;
   const order = ordersList.find((o) => o.id === selectedOrderId) || ordersList[0];
 
   const [editStatus, setEditStatus] = useState<OrderStatus>(order?.status || 'po_registered');

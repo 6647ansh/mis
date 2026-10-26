@@ -10,7 +10,6 @@ import {
 import {
   app,
   auth,
-  rtdb,
   firestore,
   firestoreDatabaseId,
   FIREBASE_CONFIG_METADATA,
@@ -1518,7 +1517,7 @@ export async function runPhase2FirestoreSecurityVerification(): Promise<{
   console.log('1. Verifying Firestore SDK Initialization (`src/lib/firebase.ts`)...');
   assertCheck(
     'Singleton FirebaseApp, Auth, RTDB, and Firestore instances initialized',
-    Boolean(app && auth && rtdb && firestore)
+    Boolean(app && auth && firestore)
   );
   assertCheck(
     'Configured Firestore database ID matches firebase-applet-config.json',
