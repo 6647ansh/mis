@@ -2319,6 +2319,58 @@ export function mapFirestoreDocToAuditLog(doc: FirestoreAuditLogDoc | Record<str
 // 10. ENTERPRISE GOVERNANCE & ACCOUNTABILITY COLLECTIONS (COLLECTIONS 23-27)
 // ============================================================================
 
+/** Roles that act for each department (production entries are made by Stores). */
+const ROLE_BY_DEPARTMENT: Record<string, TaskRecord['assignedRole'] & string> = {
+  Sales: 'sales',
+  Stores: 'stores',
+  Production: 'stores',
+  Purchase: 'purchase',
+  Quality: 'quality',
+  Dispatch: 'dispatch',
+  Finance: 'finance',
+};
+const TASK_STATUS_TO_FS: Record<string, string> = {
+  pending: 'Pending',
+  not_started: 'Pending',
+  waiting_dependency: 'Pending',
+  in_progress: 'In Progress',
+  blocked: 'In Progress',
+  submitted_for_verification: 'Submitted for Verification',
+  verified_approved: 'Verified & Approved',
+  approved: 'Verified & Approved',
+  rejected_rework: 'Rejected / Rework',
+  rejected_reopened: 'Rejected / Rework',
+  escalated: 'Escalated',
+};
+const TASK_STATUS_FROM_FS: Record<string, TaskRecord['status']> = {
+  Pending: 'pending',
+  'In Progress': 'in_progress',
+  'Submitted for Verification': 'submitted_for_verification',
+  'Verified & Approved': 'verified_approved',
+  'Rejected / Rework': 'rejected_rework',
+  Escalated: 'escalated',
+};
+const TASK_PRIORITY_TO_FS: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+const ESCALATION_TO_FS = (v: unknown) => {
+  const s = String(v ?? '');
+  if (['None', 'L1_DeptHead', 'L2_CEO'].includes(s)) return s;
+  const n = Number(v) || 0;
+  return n >= 2 ? 'L2_CEO' : n === 1 ? 'L1_DeptHead' : 'None';
+};
+const HANDOVER_STATUS_TO_FS: Record<string, string> = {
+  initiated: 'Pending Acceptance',
+  pending_acceptance: 'Pending Acceptance',
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  'Rejected / Returned': 'Rejected',
+};
+const HANDOVER_STATUS_FROM_FS: Record<string, HandoverRecord['status']> = {
+  'Pending Acceptance': 'pending_acceptance',
+  Accepted: 'accepted',
+  Rejected: 'rejected',
+  Escalated: 'pending_acceptance',
+};
+
 export function mapTaskToFirestoreDoc(
   t: TaskRecord,
   dataOrigin: DataRecordOrigin = 'production'
@@ -2327,19 +2379,19 @@ export function mapTaskToFirestoreDoc(
   return {
     id: t.id,
     taskNo: (t.taskNo || t.taskNumber || t.id).slice(0, 64),
-    title: (t.title || 'Operational Task').slice(0, 240),
+    title: requiredText(t.title, 240, 'Say what the task is.'),
     description: t.description ? t.description.slice(0, 1000) : undefined,
-    department: (t.department || 'Operations').slice(0, 80),
-    assignedRole: (t.assignedRole || 'sales') as any,
-    assignedToUid: (t.assignedToUid || 'uid_sales').slice(0, 128),
-    assignedToName: (t.assignedToName || 'Assigned Employee').slice(0, 160),
+    department: requiredText(t.department, 80, 'Choose the department.'),
+    assignedRole: (t.assignedRole || t.departmentRole || ROLE_BY_DEPARTMENT[t.department] || 'sales') as any,
+    assignedToUid: requiredText(t.assignedToUid, 128, 'Choose who the task is for.'),
+    assignedToName: requiredText(t.assignedToName, 160, 'Choose who the task is for.'),
     assignedByUid: t.assignedByUid ? t.assignedByUid.slice(0, 128) : undefined,
     assignedByName: t.assignedByName ? t.assignedByName.slice(0, 160) : undefined,
     orderId: (t.orderId || t.linkedOrderId) ? (t.orderId || t.linkedOrderId)!.slice(0, 128) : undefined,
     customerName: t.customerName ? t.customerName.slice(0, 160) : undefined,
-    priority: (t.priority || 'Medium') as any,
-    status: (t.status || 'Pending') as any,
-    dueDate: (t.dueDate || nowIso.split('T')[0]).slice(0, 40),
+    priority: (TASK_PRIORITY_TO_FS[String(t.priority).toLowerCase()] || 'Medium') as any,
+    status: (TASK_STATUS_TO_FS[t.status] || t.status || 'Pending') as any,
+    dueDate: requiredText(t.dueDate, 40, 'Set a due date.'),
     slaHours: t.slaHours !== undefined ? Math.max(0, t.slaHours) : undefined,
     submittedAt: t.submittedAt ? t.submittedAt.slice(0, 40) : undefined,
     submissionRemarks: (t.submissionRemarks || t.submissionNotes)
@@ -2350,7 +2402,7 @@ export function mapTaskToFirestoreDoc(
     verifiedAt: t.verifiedAt ? t.verifiedAt.slice(0, 40) : undefined,
     verificationRemarks: t.verificationRemarks ? t.verificationRemarks.slice(0, 600) : undefined,
     rejectionReason: t.rejectionReason ? t.rejectionReason.slice(0, 600) : undefined,
-    escalationLevel: (t.escalationLevel !== undefined ? String(t.escalationLevel) : 'None') as any,
+    escalationLevel: ESCALATION_TO_FS(t.escalationLevel) as any,
     escalatedAt: t.escalatedAt ? t.escalatedAt.slice(0, 40) : undefined,
     isSopDailyDuty: Boolean(t.isSopDailyDuty),
     sopClauseRef: t.sopClauseRef ? t.sopClauseRef.slice(0, 80) : undefined,
@@ -2375,11 +2427,13 @@ export function mapFirestoreDocToTask(doc: FirestoreTaskDoc): TaskRecord {
     taskNumber: doc.taskNo || doc.id,
     taskNo: doc.taskNo || doc.id,
     description: doc.description || '',
-    assignedByUid: doc.assignedByUid || 'uid_ceo',
-    assignedByName: doc.assignedByName || 'Management',
+    status: TASK_STATUS_FROM_FS[doc.status as string] || (doc.status as TaskRecord['status']),
+    priority: String(doc.priority || 'Medium').toLowerCase() as TaskRecord['priority'],
+    assignedByUid: doc.assignedByUid || '',
+    assignedByName: doc.assignedByName || '',
     linkedOrderId: doc.orderId,
     submissionNotes: doc.submissionRemarks,
-    slaHours: doc.slaHours ?? 24,
+    slaHours: doc.slaHours,
     escalationLevel: escNum as any,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
@@ -2392,25 +2446,27 @@ export function mapHandoverToFirestoreDoc(
   const nowIso = new Date().toISOString();
   return {
     id: h.id,
-    handoverCode: (h.handoverCode || 'H-1') as any,
-    orderId: (h.orderId || 'ORD-2026-001').slice(0, 128),
-    customerName: (h.customerName || 'Montex Customer').slice(0, 160),
-    productName: (h.productName || 'Forged Component').slice(0, 160),
-    fromDepartment: (h.fromDepartment || 'Sales').slice(0, 80),
-    fromRole: (h.fromRole || 'sales') as any,
-    fromUid: (h.fromUid || h.initiatedByUid || 'uid_sales').slice(0, 128),
-    fromUserName: (h.fromUserName || h.initiatedByName || 'Sender').slice(0, 160),
-    toDepartment: (h.toDepartment || 'Stores').slice(0, 80),
-    toRole: (h.toRole || 'stores') as any,
+    handoverCode: String(h.handoverCode || h.stageCode || '').slice(0, 3) as any,
+    orderId: requiredText(h.orderId, 128, 'Choose the job being handed over.'),
+    jobNumber: optionalText(h.jobNumber, 64),
+    customerName: requiredText(h.customerName, 160, 'The job has no customer name.'),
+    productName: requiredText(h.productName, 160, 'The job has no product.'),
+    fromDepartment: requiredText(h.fromDepartment, 80, 'Choose the handover stage.'),
+    fromRole: (h.fromRole || ROLE_BY_DEPARTMENT[h.fromDepartment] || 'sales') as any,
+    fromUid: requiredText(h.fromUid || h.initiatedByUid, 128, 'The handover must name the sender.'),
+    fromUserName: requiredText(h.fromUserName || h.initiatedByName, 160, 'The handover must name the sender.'),
+    toDepartment: requiredText(h.toDepartment, 80, 'Choose the handover stage.'),
+    toRole: (h.toRole || ROLE_BY_DEPARTMENT[h.toDepartment] || 'stores') as any,
     toUid: (h.toUid || h.receivedByUid) ? (h.toUid || h.receivedByUid)!.slice(0, 128) : undefined,
     toUserName: (h.toUserName || h.receivedByName)
       ? (h.toUserName || h.receivedByName)!.slice(0, 160)
       : undefined,
     quantityMT:
       (h.quantityMT ?? h.weightMt) !== undefined ? Math.max(0, (h.quantityMT ?? h.weightMt)!) : undefined,
-    heatNo: (h.heatNo || h.heatNumber) ? (h.heatNo || h.heatNumber)!.slice(0, 64) : undefined,
+    quantityPcs: h.quantityPcs && h.quantityPcs > 0 ? h.quantityPcs : undefined,
+    heatNo: optionalText(h.heatNo || h.heatNumber, 64),
     checklistSummary: h.checklistSummary ? h.checklistSummary.slice(0, 600) : undefined,
-    status: (h.status || 'Pending Acceptance') as any,
+    status: (HANDOVER_STATUS_TO_FS[String(h.status)] || h.status || 'Pending Acceptance') as any,
     initiatedAt: h.initiatedAt && h.initiatedAt.length >= 4 ? h.initiatedAt : nowIso,
     respondedAt: h.respondedAt ? h.respondedAt.slice(0, 40) : undefined,
     remarks: (h.remarks || h.responseRemarks)
@@ -2426,16 +2482,17 @@ export function mapHandoverToFirestoreDoc(
 export function mapFirestoreDocToHandover(doc: FirestoreHandoverDoc): HandoverRecord {
   return {
     ...doc,
-    jobNumber: `JOB-MF-${doc.orderId}`,
+    jobNumber: doc.jobNumber || '',
+    status: HANDOVER_STATUS_FROM_FS[doc.status as string] || (doc.status as HandoverRecord['status']),
     stageLabel: `${doc.handoverCode}: ${doc.fromDepartment} → ${doc.toDepartment}`,
     initiatedByUid: doc.fromUid,
     initiatedByName: doc.fromUserName,
     receivedByUid: doc.toUid,
     receivedByName: doc.toUserName,
-    quantityPcs: 100,
-    weightMt: doc.quantityMT ?? 1,
-    heatNumber: doc.heatNo || 'HEAT-VERIFIED',
-    checklistSummary: doc.checklistSummary || 'Verified',
+    quantityPcs: doc.quantityPcs,
+    weightMt: doc.quantityMT,
+    heatNumber: doc.heatNo || '',
+    checklistSummary: doc.checklistSummary || '',
     responseRemarks: doc.remarks,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };

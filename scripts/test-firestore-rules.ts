@@ -315,6 +315,17 @@ async function main() {
   await check('A consistent lot (500 = 492 + 8) is accepted from Quality', () =>
     assertSucceeds(setDoc(doc(as('quality1'), 'qualityInspections/QC-2'), inspection('QC-2', 500, 492, 8)))
   );
+  await check('Quality can hand a cleared lot to Dispatch (H-4)', () => {
+    const now = new Date().toISOString();
+    return assertSucceeds(
+      setDoc(doc(as('quality1'), 'handovers/HND-T1'), {
+        id: 'HND-T1', handoverCode: 'H-4', orderId: 'ORD-2026-001', jobNumber: 'JOB-1', customerName: 'BHEL',
+        productName: 'Flange', fromDepartment: 'Quality', fromRole: 'quality', fromUid: 'quality1', fromUserName: 'Q One',
+        toDepartment: 'Dispatch', toRole: 'dispatch', quantityPcs: 50, checklistSummary: 'MTC ok',
+        status: 'Pending Acceptance', initiatedAt: now, createdAt: now, updatedAt: now, dataOrigin: 'production',
+      })
+    );
+  });
   await check('Rework larger than the rejected quantity is refused', () =>
     assertFails(
       setDoc(doc(as('quality1'), 'qualityInspections/QC-4'), {

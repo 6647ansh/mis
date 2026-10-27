@@ -31,7 +31,7 @@ const MasterDataPage = lazyNamed(() => import('./components/modules/MasterDataPa
 const AlertsPage = lazyNamed(() => import('./components/modules/AlertsPage'), 'AlertsPage');
 const ReportsView = lazyNamed(() => import('./components/modules/ReportsView'), 'ReportsView');
 const AdminPage = lazyNamed(() => import('./components/modules/AdminPage'), 'AdminPage');
-const TaskAccountabilityView = lazyNamed(() => import('./components/modules/TaskAccountabilityView'), 'TaskAccountabilityView');
+const TasksPage = lazyNamed(() => import('./components/modules/TasksPage'), 'TasksPage');
 
 function FullPageSpinner({ label }: { label: string }) {
   return (
@@ -192,7 +192,7 @@ function MontexWorkspace() {
                 )}
 
                 {currentTab === 'tasks_accountability' && (
-                  <TaskAccountabilityView onSelectOrder={openOrder} />
+                  <TasksPage onSelectOrder={openOrder} />
                 )}
 
                 {currentTab === 'blueprint' && <BlueprintView />}

@@ -1049,8 +1049,9 @@ service cloud.firestore {
         'id', 'handoverCode', 'orderId', 'customerName', 'productName',
         'fromDepartment', 'fromRole', 'fromUid', 'fromUserName',
         'toDepartment', 'toRole', 'toUid', 'toUserName', 'quantityMT',
+        'jobNumber', 'quantityPcs',
         'heatNo', 'checklistSummary', 'status', 'initiatedAt', 'respondedAt',
-        'remarks', 'rejectionReason', 'slaDeadline', 'updatedAt', 'dataOrigin'
+        'remarks', 'rejectionReason', 'slaDeadline', 'createdAt', 'updatedAt', 'dataOrigin'
       ]) &&
       data.id is string && data.id == handoverId && data.id.size() >= 1 && data.id.size() <= 128 &&
       data.handoverCode is string && data.handoverCode in ['H-1', 'H-2', 'H-3', 'H-4', 'H-5'] &&
@@ -1066,6 +1067,8 @@ service cloud.firestore {
       (!('toUid' in data) || (data.toUid is string && data.toUid.size() <= 128)) &&
       (!('toUserName' in data) || (data.toUserName is string && data.toUserName.size() <= 160)) &&
       (!('quantityMT' in data) || (data.quantityMT is number && data.quantityMT >= 0)) &&
+      (!('jobNumber' in data) || (data.jobNumber is string && data.jobNumber.size() <= 64)) &&
+      (!('quantityPcs' in data) || (data.quantityPcs is number && data.quantityPcs >= 0)) &&
       (!('heatNo' in data) || (data.heatNo is string && data.heatNo.size() <= 64)) &&
       (!('checklistSummary' in data) || (data.checklistSummary is string && data.checklistSummary.size() <= 600)) &&
       data.status is string && data.status in ['Pending Acceptance', 'Accepted', 'Rejected', 'Escalated'] &&
@@ -1074,6 +1077,7 @@ service cloud.firestore {
       (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 600)) &&
       (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 600)) &&
       (!('slaDeadline' in data) || (data.slaDeadline is string && data.slaDeadline.size() <= 40)) &&
+      (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40)) &&
       data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
       isValidDataOrigin(data);
     }

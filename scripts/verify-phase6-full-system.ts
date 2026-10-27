@@ -424,7 +424,13 @@ async function main() {
   };
 
   const tRes = await engine.upsertTaskRecord(INITIAL_TASKS[0], true, ceoUser, false);
-  const hRes = await engine.upsertHandoverRecord(INITIAL_HANDOVERS[0], true, ceoUser, false);
+  // A real handover always names the job's customer and product.
+  const hoFixture = {
+    ...INITIAL_HANDOVERS[0],
+    customerName: INITIAL_HANDOVERS[0].customerName || 'Bharat Heavy Electricals Ltd',
+    productName: INITIAL_HANDOVERS[0].productName || 'Weld Neck Flange',
+  };
+  const hRes = await engine.upsertHandoverRecord(hoFixture, true, ceoUser, false);
   const prRes = await engine.upsertPurchaseRequisitionRecord(
     INITIAL_PURCHASE_REQUISITIONS[0],
     true,
@@ -454,7 +460,7 @@ async function main() {
   const snap = await engine.loadProductionSnapshot(ceoUser);
 
   const rtTask = mapFirestoreDocToTask(mapTaskToFirestoreDoc(INITIAL_TASKS[0]));
-  const rtHandover = mapFirestoreDocToHandover(mapHandoverToFirestoreDoc(INITIAL_HANDOVERS[0]));
+  const rtHandover = mapFirestoreDocToHandover(mapHandoverToFirestoreDoc(hoFixture));
   const rtPr = mapFirestoreDocToPurchaseRequisition(
     mapPurchaseRequisitionToFirestoreDoc(INITIAL_PURCHASE_REQUISITIONS[0])
   );

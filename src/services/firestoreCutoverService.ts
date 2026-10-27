@@ -3129,7 +3129,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapTaskToFirestoreDoc(task, 'production');
+    let docPayload: ReturnType<typeof mapTaskToFirestoreDoc>;
+    try {
+      docPayload = mapTaskToFirestoreDoc(task, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The task is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('tasks', task.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'TASK_ASSIGNED' : 'TASK_UPDATED',
@@ -3185,7 +3196,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapHandoverToFirestoreDoc(handover, 'production');
+    let docPayload: ReturnType<typeof mapHandoverToFirestoreDoc>;
+    try {
+      docPayload = mapHandoverToFirestoreDoc(handover, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The handover is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('handovers', handover.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'HANDOVER_INITIATED' : 'HANDOVER_UPDATED',

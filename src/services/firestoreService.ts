@@ -698,6 +698,8 @@ export interface FirestoreHandoverDoc {
   toRole: UserRole;
   toUid?: string;
   toUserName?: string;
+  jobNumber?: string;
+  quantityPcs?: number;
   quantityMT?: number;
   heatNo?: string;
   checklistSummary?: string;
