@@ -8,13 +8,36 @@ import { Button } from '@/components/ui/button';
 import { Sidebar } from './components/layout/Sidebar';
 import { SignInPage } from './components/auth/SignInPage';
 import { AccountStatusGate } from './components/auth/AccountStatusGate';
+import { ModuleErrorBoundary } from './components/common/ModuleErrorBoundary';
 import { canRoleAccessWorkspaceTab, WORKSPACE_TAB_TO_MODULE, WorkspaceTabId } from './types/roles';
 
 // Each module is fetched only when first opened, so sign-in and the shell stay light.
+// A stale chunk (after a dev re-optimise or a new deploy) gets one automatic page reload.
+const CHUNK_RELOAD_KEY = 'montex-chunk-reload';
 const lazyNamed = <K extends string>(
   loader: () => Promise<Record<K, React.ComponentType<any>>>,
   name: K
-) => lazy(() => loader().then((m) => ({ default: m[name] })));
+) =>
+  lazy(() =>
+    loader().then(
+      (m) => {
+        try { sessionStorage.removeItem(CHUNK_RELOAD_KEY); } catch {}
+        return { default: m[name] };
+      },
+      (err) => {
+        let reloaded = false;
+        try {
+          reloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
+          if (!reloaded) sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+        } catch {}
+        if (!reloaded) {
+          window.location.reload();
+          return new Promise<never>(() => {});
+        }
+        throw err;
+      }
+    )
+  );
 
 const CommandCenter = lazyNamed(() => import('./components/dashboard/CommandCenter'), 'CommandCenter');
 const OrderTrackerPage = lazyNamed(() => import('./components/orders/OrderTrackerPage'), 'OrderTrackerPage');
@@ -182,6 +205,7 @@ function MontexWorkspace() {
                 </button>
               </div>
             ) : (
+              <ModuleErrorBoundary key={currentTab} moduleName={moduleName}>
               <Suspense fallback={<ModuleFallback />}>
                 {currentTab === 'dashboard' && <CommandCenter onNavigate={handleNavigate} />}
 
@@ -227,6 +251,7 @@ function MontexWorkspace() {
                   <AdminPage />
                 )}
               </Suspense>
+              </ModuleErrorBoundary>
             )}
           </div>
         </main>
