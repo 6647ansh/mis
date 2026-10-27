@@ -1093,9 +1093,8 @@ export function mapSalesOrderToFirestoreDoc(
     committedDeliveryDate: (o.expectedDeliveryDate || nowIso.split('T')[0]).slice(0, 40),
     currentStage: stageMapping.currentStage,
     overallStatus: stageMapping.overallStatus,
-    delayDays: o.status === 'on_hold' ? 5 : 0,
-    delayReason: (o.statusLabel || '').slice(0, 400),
-    heatNo: (o.materialStatus?.heatNumber || 'PENDING').slice(0, 64),
+    // Delay and heat number are written only when actually known (never estimated).
+    heatNo: optionalText(o.materialStatus?.heatNumber, 64),
     mtcStatus:
       o.qualityStatus?.mtcStatus === 'verified' || o.qualityStatus?.mtcStatus === 'issued'
         ? 'Verified'
@@ -1108,7 +1107,7 @@ export function mapSalesOrderToFirestoreDoc(
         : o.dispatchStatus?.state === 'partial'
         ? 'Partial'
         : 'Not Started',
-    invoiceNo: (o.invoiceStatus?.invoiceNumber || '-').slice(0, 64),
+    invoiceNo: o.invoiceStatus?.invoiceNumber && o.invoiceStatus.invoiceNumber !== '-' ? o.invoiceStatus.invoiceNumber.slice(0, 64) : undefined,
     paymentStatus:
       o.invoiceStatus?.state === 'settled'
         ? 'Paid'
@@ -1225,7 +1224,7 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
     materialStatus: stageMeta.materialStatus || {
       state: 'allocated',
       materialGrade: doc.steelGrade,
-      heatNumber: doc.heatNo || 'PENDING',
+      heatNumber: doc.heatNo || '',
       requiredKg: Math.round(doc.quantityMT * 1000),
       allocatedKg: Math.round(doc.quantityMT * 1000),
       supplierName: 'Approved Mill',

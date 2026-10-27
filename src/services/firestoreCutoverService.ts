@@ -183,6 +183,18 @@ export const DEFAULT_CLEAN_ALERT_THRESHOLDS: RtdbAlertThresholds = {
   lowStockDays: 14,
 };
 
+/**
+ * Sales-order fields each operational role may change (mirrors firestore.rules
+ * salesOrderUpdateAllowed). These roles patch only these fields; a full rewrite
+ * would touch others and be refused.
+ */
+const ORDER_FIELDS_BY_ROLE: Partial<Record<string, string[]>> = {
+  stores: ['currentStage', 'overallStatus', 'delayDays', 'delayReason', 'heatNo', 'stages', 'updatedAt'],
+  quality: ['currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt'],
+  dispatch: ['currentStage', 'overallStatus', 'dispatchStatus', 'stages', 'updatedAt'],
+  finance: ['currentStage', 'overallStatus', 'invoiceNo', 'paymentStatus', 'stages', 'updatedAt'],
+};
+
 export interface CutoverWriteResult<T = void> {
   success: boolean;
   persistedToFirestore: boolean;
@@ -1800,7 +1812,7 @@ export class MontexCutoverEngine {
         persistedToRtdb: false,
         code: commercialWarning ? 'PARTIAL_WRITE' : 'OK',
         warning: commercialWarning,
-        data: mapFirestoreDocToSalesOrder(res.data),
+        data: order,
       };
     } finally {
       this.releaseLock(lockKey);
@@ -1851,13 +1863,9 @@ export class MontexCutoverEngine {
         };
       }
 
-      const docPayload = mapSalesOrderToFirestoreDoc(order, 'production');
-      const res = await this.fs.setDocument('salesOrders', order.id, docPayload, {
-        merge: false,
-        auditAction: 'SALES_ORDER_UPDATED',
-        auditDetails: `Updated ${order.id} (${order.jobNumber}): ${changeSummary}`,
-      });
-      if (!res.success || !res.data) {
+      // Operational roles patch only their own fields; Sales/CEO/Admin rewrite the order.
+      const res = await this.writeOrderForRole(order, user);
+      if (!res.success) {
         return {
           success: false,
           persistedToFirestore: false,
@@ -2249,12 +2257,10 @@ export class MontexCutoverEngine {
 
       let savedOrder: OrderJourney | undefined = updatedOrder;
       let warning: string | undefined;
-      const ordDoc = mapSalesOrderToFirestoreDoc(updatedOrder, 'production');
-      const ordRes = await this.fs.setDocument('salesOrders', updatedOrder.id, ordDoc, {
-        merge: false,
-      });
-      if (ordRes.success && ordRes.data) {
-        savedOrder = mapFirestoreDocToSalesOrder(ordRes.data);
+      const ordRes = await this.writeOrderForRole(updatedOrder, user);
+      if (ordRes.success) {
+        // The live listener delivers the stored version; show the update straight away.
+        savedOrder = updatedOrder;
       } else {
         // Never report full success when only half the change was saved.
         savedOrder = undefined;
@@ -2282,6 +2288,17 @@ export class MontexCutoverEngine {
    * Rules limit quality clearance to Quality/CEO/Super Admin and finance clearance to
    * Finance/CEO/Super Admin, and require the clearance to name the caller.
    */
+  /** Writes an updated order the way the caller's role is allowed to: full or field patch. */
+  private async writeOrderForRole(order: OrderJourney, user: UserProfile) {
+    const doc = mapSalesOrderToFirestoreDoc(order, 'production') as Record<string, any>;
+    const fields = ORDER_FIELDS_BY_ROLE[user.role];
+    if (!fields) {
+      return this.fs.setDocument('salesOrders', order.id, doc as any, { merge: false });
+    }
+    const patch = Object.fromEntries(fields.filter((k) => doc[k] !== undefined).map((k) => [k, doc[k]]));
+    return this.fs.updateDocument('salesOrders', order.id, patch);
+  }
+
   /**
    * Saves an order's value, rate and invoice amounts to /orderCommercials. Returns a
    * warning instead of failing the order save, so the caller can tell the user exactly
