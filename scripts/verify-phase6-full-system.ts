@@ -472,7 +472,7 @@ async function main() {
   assertCheck(
     'PH6-COL23-27',
     'All 27 Collections & New Accountability/Handover/PR/NCR/FollowUp Registers Persist, Round-Trip & Reload Cleanly',
-    ALL_FIRESTORE_COLLECTIONS.length === 28 && // 27 business collections + orderCommercials
+    ALL_FIRESTORE_COLLECTIONS.length === 29 && // 27 business collections + orderCommercials + leads
       tRes.success &&
       hRes.success &&
       prRes.success &&

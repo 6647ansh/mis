@@ -111,6 +111,15 @@ wrong value, so the user saw success (or nothing) while nothing was saved:
 Mappers across all modules no longer invent names, ids, rates, weights, dates or
 placeholder text; missing required facts are refused with a plain message.
 
+## 5a. Enquiries (leads)
+
+The old leads tab kept entries only in browser memory (lost on refresh, invisible to
+others) and showed hard-coded targets. Rebuilt as `/leads/{leadId}` with rules
+(Sales / CEO / Super Admin only; creator must be the signed-in user) and an
+Enquiries page: pipeline, source → quoted → won table, follow-up log, lost reasons,
+and "RFQ received" which links or creates the customer and opens a pre-filled
+quotation; saving it marks the enquiry Quoted, and a won quotation counts it Won.
+
 ## 5. Questions still open for Montex (blueprint section 9)
 
 Asked one by one as each module is reached; nothing is assumed:

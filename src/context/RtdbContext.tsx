@@ -48,7 +48,7 @@ import {
   PurchaseRequisitionRecord,
   NcrCapaRecord,
   PaymentFollowUpRecord,
-  PreRfqLeadRecord,
+  LeadRecord,
   PpcScheduleEntry,
   RoleDutySopChecklist,
   ROLE_PERMISSION_DEFAULTS,
@@ -236,7 +236,8 @@ interface RtdbContextType {
   purchaseRequisitions: PurchaseRequisitionRecord[];
   ncrCapaRecords: NcrCapaRecord[];
   paymentFollowUps: PaymentFollowUpRecord[];
-  preRfqLeads: PreRfqLeadRecord[];
+  leads: LeadRecord[];
+  upsertLeadRecord: (lead: LeadRecord, isNew: boolean) => Promise<CutoverWriteResult<LeadRecord>>;
   ppcSchedules: PpcScheduleEntry[];
   roleDutyManuals: RoleDutySopChecklist[];
 
@@ -269,7 +270,6 @@ interface RtdbContextType {
   setPurchaseRequisitions: React.Dispatch<React.SetStateAction<PurchaseRequisitionRecord[]>>;
   setNcrCapaRecords: React.Dispatch<React.SetStateAction<NcrCapaRecord[]>>;
   setPaymentFollowUps: React.Dispatch<React.SetStateAction<PaymentFollowUpRecord[]>>;
-  setPreRfqLeads: React.Dispatch<React.SetStateAction<PreRfqLeadRecord[]>>;
   setPpcSchedules: React.Dispatch<React.SetStateAction<PpcScheduleEntry[]>>;
 
   // Phase 5 Persistent Register & Core Module Actions (Cloud Firestore Cutover)
@@ -526,8 +526,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
   >([]);
   const [ncrCapaRecords, setNcrCapaRecords] = useState<NcrCapaRecord[]>([]);
   const [paymentFollowUps, setPaymentFollowUps] = useState<PaymentFollowUpRecord[]>([]);
-  const [preRfqLeads, setPreRfqLeads] =
-    useState<PreRfqLeadRecord[]>([]);
+  const [leads, setLeads] = useState<LeadRecord[]>([]);
   const [ppcSchedules, setPpcSchedules] =
     useState<PpcScheduleEntry[]>([]);
   const [roleDutyManuals, setRoleDutyManuals] = useState<RoleDutySopChecklist[]>([]);
@@ -575,7 +574,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPurchaseRequisitions([]);
     setNcrCapaRecords([]);
     setPaymentFollowUps([]);
-    setPreRfqLeads([]);
+    setLeads([]);
     setPpcSchedules([]);
   }, []);
 
@@ -1076,6 +1075,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setJobCostSheets(liveJobCostSheets);
     setQuotations(liveQuotations);
     setTenders(liveTenders);
+    setLeads(canRoleReadCollection(role, 'leads') ? snap.leads || [] : []);
     setPurchaseOrders(livePurchaseOrders);
     setMachineLogs(liveMachineLogs);
     setFurnaceLogs(liveFurnaceLogs);
@@ -1305,6 +1305,15 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setMaintenanceTickets((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
+    }
+    return res;
+  };
+
+  const upsertLeadRecord = async (lead: LeadRecord, isNew: boolean) => {
+    const res = await cutoverEngine.upsertLead(lead, isNew, currentUser);
+    if (res.success && res.data) {
+      const saved = res.data;
+      setLeads((prev) => (prev.some((l) => l.id === saved.id) ? prev.map((l) => (l.id === saved.id ? saved : l)) : [saved, ...prev]));
     }
     return res;
   };
@@ -2779,7 +2788,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         purchaseRequisitions,
         ncrCapaRecords,
         paymentFollowUps,
-        preRfqLeads,
+        leads,
+        upsertLeadRecord,
         ppcSchedules,
         roleDutyManuals,
         setProductionSummary,
@@ -2810,7 +2820,6 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPurchaseRequisitions,
         setNcrCapaRecords,
         setPaymentFollowUps,
-        setPreRfqLeads,
         setPpcSchedules,
         createQuotationRecord,
         updateQuotationRecord,

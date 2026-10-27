@@ -765,6 +765,37 @@ service cloud.firestore {
       isValidDataOrigin(data);
     }
 
+    // Sales enquiry before it becomes a quotation (/leads/{leadId})
+    function isValidLead(data, leadId) {
+      return data.keys().hasAll([
+        'id', 'companyName', 'contactPerson', 'source', 'productInterest', 'stage',
+        'ownerUid', 'ownerName', 'createdByUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().toSet().difference([
+        'id', 'companyName', 'contactPerson', 'phone', 'email', 'city', 'industry', 'source',
+        'productInterest', 'materialGrade', 'estimatedValueINR', 'stage', 'ownerUid', 'ownerName',
+        'nextFollowUpDate', 'lastContactDate', 'notes', 'lostReason', 'customerId', 'quotationId',
+        'createdByUid', 'createdAt', 'updatedAt', 'dataOrigin'
+      ].toSet()).size() == 0 &&
+      data.id == leadId &&
+      data.companyName is string && data.companyName.size() >= 2 && data.companyName.size() <= 160 &&
+      data.contactPerson is string && data.contactPerson.size() >= 2 && data.contactPerson.size() <= 120 &&
+      data.source is string && data.source.size() >= 2 && data.source.size() <= 60 &&
+      data.productInterest is string && data.productInterest.size() >= 2 && data.productInterest.size() <= 300 &&
+      data.stage in ['New', 'Contacted', 'Qualified', 'RFQ Received', 'Quoted', 'Won', 'Lost'] &&
+      data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+      data.ownerName is string && data.ownerName.size() >= 2 && data.ownerName.size() <= 160 &&
+      data.get('phone', '') is string && data.get('phone', '').size() <= 40 &&
+      data.get('email', '') is string && data.get('email', '').size() <= 160 &&
+      data.get('estimatedValueINR', 0) is number && data.get('estimatedValueINR', 0) >= 0 &&
+      data.get('notes', '') is string && data.get('notes', '').size() <= 4000 &&
+      data.get('lostReason', '') is string && data.get('lostReason', '').size() <= 400 &&
+      data.createdByUid is string && data.createdByUid.size() <= 128 &&
+      data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+      data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+      isValidDataOrigin(data);
+    }
+
     // 2.15 SteelMillSupplier (/suppliers/{supplierId})
     function isValidSupplier(data, supplierId) {
       return data.keys().hasAll([
@@ -1581,6 +1612,17 @@ service cloud.firestore {
     }
 
     // Collection 14: /tenders/{tenderId} (Register #2)
+    match /leads/{leadId} {
+      allow get: if isActiveUser() && isValidId(leadId) && (isSuperAdmin() || isCeo() || isSales());
+      allow list: if isActiveUser() && (isSuperAdmin() || isCeo() || isSales());
+      allow create: if isActiveUser() && isValidId(leadId) && isValidLead(incoming(), leadId) &&
+        incoming().createdByUid == request.auth.uid && (isSuperAdmin() || isCeo() || isSales());
+      allow update: if isActiveUser() && isValidId(leadId) && isValidLead(incoming(), leadId) &&
+        incoming().createdAt == existing().createdAt && incoming().createdByUid == existing().createdByUid &&
+        (isSuperAdmin() || isCeo() || isSales());
+      allow delete: if isActiveUser() && isValidId(leadId) && (isSuperAdmin() || isCeo());
+    }
+
     match /tenders/{tenderId} {
       allow get: if isActiveUser() && isValidId(tenderId) && (
         isSuperAdmin() || isCeo() || isSales() || isFinance()

@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Award, CalendarClock, Download, FileText, MoreHorizontal, Plus, Repeat, Send, Trophy } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
 import type { QuotationRecord, TenderRecord } from '../../types/mis';
 import type { MontexPdfDocumentPayload } from '../../services/documentExportService';
 import { buildNewOrder } from '../../lib/orders';
+import { takeQuoteFromLead, type QuoteFromLead } from '../../lib/handoff';
 import { DocumentPreviewModal } from '../common/DocumentPreviewModal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,12 @@ export function QuotationsPage({ onSelectOrder }: { onSelectOrder?: (orderId: st
   const { currentUser, activeRbacGroup, quotations, tenders, customers, products } = useRtdb();
   const canWrite = currentUser.accountStatus === 'active' && WRITERS.includes(currentUser.role);
   const [tab, setTab] = useState('open');
-  const [dialog, setDialog] = useState<{ kind: 'new' | 'tender' } | { kind: 'follow' | 'convert'; quote: QuotationRecord } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'new'; fromLead?: QuoteFromLead } | { kind: 'tender' } | { kind: 'follow' | 'convert'; quote: QuotationRecord } | null>(null);
+  // An enquiry with a fresh RFQ opens a quotation already pointed at its customer.
+  useEffect(() => {
+    const fromLead = takeQuoteFromLead();
+    if (fromLead) setDialog({ kind: 'new', fromLead });
+  }, []);
   const [preview, setPreview] = useState<MontexPdfDocumentPayload | null>(null);
   const today = todayIso();
 
@@ -284,7 +290,7 @@ export function QuotationsPage({ onSelectOrder }: { onSelectOrder?: (orderId: st
       <Dialog open={dialog !== null} onOpenChange={(o) => !o && setDialog(null)}>
         {dialog && (
           <DialogContent className="sm:max-w-xl">
-            {dialog.kind === 'new' && <QuoteForm onDone={() => setDialog(null)} />}
+            {dialog.kind === 'new' && <QuoteForm fromLead={dialog.fromLead} onDone={() => setDialog(null)} />}
             {dialog.kind === 'tender' && <TenderForm onDone={() => setDialog(null)} />}
             {dialog.kind === 'follow' && <FollowForm quote={dialog.quote} onDone={() => setDialog(null)} />}
             {dialog.kind === 'convert' && <ConvertForm quote={dialog.quote} onDone={() => setDialog(null)} />}
@@ -337,10 +343,10 @@ function Shell({ title, description, error, saving, submit, onCancel, onSubmit, 
   );
 }
 
-function QuoteForm({ onDone }: { onDone: () => void }) {
-  const { customers, products, quotations, createQuotationRecord } = useRtdb();
+function QuoteForm({ fromLead, onDone }: { fromLead?: QuoteFromLead; onDone: () => void }) {
+  const { customers, products, quotations, leads, createQuotationRecord, upsertLeadRecord } = useRtdb();
   const [ref, setRef] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(fromLead?.customerId || '');
   const [productId, setProductId] = useState('');
   const [qty, setQty] = useState('');
   const [weight, setWeight] = useState('');
@@ -371,8 +377,9 @@ function QuoteForm({ onDone }: { onDone: () => void }) {
     if (!next) return setError('Enter when to follow up.');
     setError('');
     setSaving(true);
+    const quoteId = newRecordId('QTN');
     const res = await createQuotationRecord({
-      id: newRecordId('QTN'),
+      id: quoteId,
       rfqReference: ref.trim(),
       quoteDate: todayIso(),
       validUntil: valid,
@@ -397,12 +404,25 @@ function QuoteForm({ onDone }: { onDone: () => void }) {
     });
     setSaving(false);
     if (!res.success) return setError(res.error || 'The quotation could not be saved.');
+    const enquiry = fromLead && leads.find((l) => l.id === fromLead.leadId);
+    if (enquiry) {
+      const link = await upsertLeadRecord({ ...enquiry, stage: 'quoted', quotationId: quoteId, nextFollowUpDate: next }, false);
+      if (!link.success) toast.warning('Quotation saved, enquiry not updated', { description: link.error });
+    }
     toast.success('Quotation saved', { description: `${customer.name} · ${formatINR(ratePc * pcs, { compact: true })}` });
     onDone();
   };
 
   return (
-    <Shell title="New quotation" description="Price is worked out from weight per piece × rate per kg." error={error} saving={saving} submit="Save quotation" onCancel={onDone} onSubmit={submit}>
+    <Shell
+      title="New quotation"
+      description={fromLead ? `From enquiry: ${fromLead.productHint}. Price = weight per piece × rate per kg.` : 'Price is worked out from weight per piece × rate per kg.'}
+      error={error}
+      saving={saving}
+      submit="Save quotation"
+      onCancel={onDone}
+      onSubmit={submit}
+    >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Customer" htmlFor="q-cust">
           <Select id="q-cust" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>

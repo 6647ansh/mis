@@ -576,6 +576,7 @@ export type FirestoreCollectionKey =
   | 'auditLogs'
   | 'quotations'
   | 'tenders'
+  | 'leads'
   | 'suppliers'
   | 'purchaseOrders'
   | 'machineLogs'
@@ -676,6 +677,7 @@ const ROLE_COLLECTION_READ_MATRIX: Readonly<
   auditLogs: ['super_admin', 'ceo'],
   quotations: ['super_admin', 'ceo', 'sales', 'finance'],
   tenders: ['super_admin', 'ceo', 'sales', 'finance'],
+  leads: ['super_admin', 'ceo', 'sales'],
   suppliers: ['super_admin', 'ceo', 'purchase', 'stores', 'quality', 'finance'],
   purchaseOrders: ['super_admin', 'ceo', 'purchase', 'stores', 'finance'],
   machineLogs: ['super_admin', 'ceo', 'stores', 'quality', 'sales'],
@@ -780,6 +782,7 @@ const ROLE_COLLECTION_WRITE_MATRIX: Readonly<
   ],
   quotations: ['super_admin', 'ceo', 'sales'],
   tenders: ['super_admin', 'ceo', 'sales'],
+  leads: ['super_admin', 'ceo', 'sales'],
   suppliers: ['super_admin', 'ceo', 'purchase'],
   purchaseOrders: ['super_admin', 'ceo', 'purchase', 'stores'],
   machineLogs: ['super_admin', 'ceo', 'stores'],
@@ -1088,6 +1091,7 @@ export type WorkspaceTabId =
   | 'sales_orders'
   | 'orders'
   | 'quotations'
+  | 'leads'
   | 'customers'
   | 'products'
   | 'masters'
@@ -1111,6 +1115,7 @@ export const WORKSPACE_TAB_TO_MODULE: Readonly<Record<WorkspaceTabId, MisModuleI
   sales_orders: 'Sales Orders',
   orders: 'Sales Orders',
   quotations: 'Quotations & Tenders',
+  leads: 'Quotations & Tenders',
   customers: 'Customer & Product Master',
   products: 'Customer & Product Master',
   masters: 'Customer & Product Master',
@@ -1138,6 +1143,8 @@ export function canRoleAccessWorkspaceTab(
   if (tabId === 'tasks' || tabId === 'tasks_accountability' || tabId === 'dashboard' || tabId === 'blueprint') {
     return true;
   }
+  // Enquiries hold prospect contacts: only the people who sell (rules match this).
+  if (tabId === 'leads') return canRoleReadCollection(canonical, 'leads');
   const moduleName = WORKSPACE_TAB_TO_MODULE[tabId as WorkspaceTabId];
   if (!moduleName || moduleName === 'Tasks & Handovers') {
     return true;

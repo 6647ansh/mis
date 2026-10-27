@@ -315,6 +315,20 @@ async function main() {
   await check('A consistent lot (500 = 492 + 8) is accepted from Quality', () =>
     assertSucceeds(setDoc(doc(as('quality1'), 'qualityInspections/QC-2'), inspection('QC-2', 500, 492, 8)))
   );
+  const lead = (id: string, by: string) => {
+    const now = new Date().toISOString();
+    return {
+      id, companyName: 'Godrej Process Eqpt', contactPerson: 'R Mehta', phone: '+91 98200 00000', source: 'Exhibition / expo',
+      productInterest: '8 inch Class 600 WN flanges', stage: 'New', ownerUid: by, ownerName: 'Sales One',
+      createdByUid: by, createdAt: now, updatedAt: now, dataOrigin: 'production',
+    };
+  };
+  await check('Sales can add an enquiry', () => assertSucceeds(setDoc(doc(as('sales1'), 'leads/LEAD-1'), lead('LEAD-1', 'sales1'))));
+  await check('Enquiry cannot be created in someone else\'s name', () =>
+    assertFails(setDoc(doc(as('sales1'), 'leads/LEAD-2'), lead('LEAD-2', 'ceo1')))
+  );
+  await check('Dispatch cannot read enquiries', () => assertFails(getDocs(collection(as('dispatch1'), 'leads'))));
+
   await check('Quality can hand a cleared lot to Dispatch (H-4)', () => {
     const now = new Date().toISOString();
     return assertSucceeds(

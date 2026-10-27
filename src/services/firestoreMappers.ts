@@ -24,6 +24,7 @@ import {
   SteelMillSupplier,
   StockMovement,
   TenderRecord,
+  LeadRecord,
   UserProfile,
   TaskRecord,
   HandoverRecord,
@@ -56,6 +57,7 @@ import {
   FirestoreSupplierDoc,
   FirestoreSystemConfigDoc,
   FirestoreTenderDoc,
+  FirestoreLeadDoc,
   FirestoreTaskDoc,
   FirestoreHandoverDoc,
   FirestorePurchaseRequisitionDoc,
@@ -347,6 +349,56 @@ export function mapTenderToFirestoreDoc(
     createdAt: t.bidSubmissionDate && t.bidSubmissionDate.length >= 4 ? t.bidSubmissionDate : nowIso,
     updatedAt: nowIso,
     dataOrigin,
+  };
+}
+
+const LEAD_STAGE_TO_FS: Record<LeadRecord['stage'], FirestoreLeadDoc['stage']> = {
+  new: 'New',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  rfq_received: 'RFQ Received',
+  quoted: 'Quoted',
+  won: 'Won',
+  lost: 'Lost',
+};
+const LEAD_STAGE_FROM_FS = Object.fromEntries(Object.entries(LEAD_STAGE_TO_FS).map(([k, v]) => [v, k])) as Record<string, LeadRecord['stage']>;
+
+export function mapLeadToFirestoreDoc(l: LeadRecord, dataOrigin: DataRecordOrigin = 'production'): FirestoreLeadDoc {
+  const nowIso = new Date().toISOString();
+  return {
+    id: l.id,
+    companyName: requiredText(l.companyName, 160, 'Enter the company name.'),
+    contactPerson: requiredText(l.contactPerson, 120, 'Enter who you spoke to.'),
+    phone: optionalText(l.phone, 40),
+    email: optionalText(l.email, 160),
+    city: optionalText(l.city, 120),
+    industry: optionalText(l.industry, 120),
+    source: requiredText(l.source, 60, 'Choose where the enquiry came from.'),
+    productInterest: requiredText(l.productInterest, 300, 'Enter what they are asking for.'),
+    materialGrade: optionalText(l.materialGrade, 64),
+    estimatedValueINR: l.estimatedValueInr && l.estimatedValueInr > 0 ? l.estimatedValueInr : undefined,
+    stage: LEAD_STAGE_TO_FS[l.stage] || 'New',
+    ownerUid: requiredText(l.ownerUid, 128, 'Choose who owns this enquiry.'),
+    ownerName: requiredText(l.ownerName, 160, 'Choose who owns this enquiry.'),
+    nextFollowUpDate: optionalText(l.nextFollowUpDate, 40),
+    lastContactDate: optionalText(l.lastContactDate, 40),
+    notes: optionalText(l.notes, 4000),
+    lostReason: optionalText(l.lostReason, 400),
+    customerId: optionalText(l.customerId, 128),
+    quotationId: optionalText(l.quotationId, 128),
+    createdByUid: requiredText(l.createdByUid, 128, 'Missing creator.'),
+    createdAt: l.createdAt && l.createdAt.length >= 4 ? l.createdAt : nowIso,
+    updatedAt: nowIso,
+    dataOrigin,
+  };
+}
+
+export function mapFirestoreDocToLead(doc: FirestoreLeadDoc): LeadRecord {
+  return {
+    ...doc,
+    estimatedValueInr: doc.estimatedValueINR,
+    stage: LEAD_STAGE_FROM_FS[doc.stage] || 'new',
+    dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }
 

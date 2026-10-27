@@ -40,6 +40,7 @@ import {
   NcrCapaRecord,
   PaymentFollowUpRecord,
   TenderRecord,
+  LeadRecord,
   UserProfile,
 } from '../types/mis';
 import {
@@ -76,6 +77,7 @@ import {
   FirestoreOrderCommercialDoc,
   FirestoreTaskDoc,
   FirestoreTenderDoc,
+  FirestoreLeadDoc,
   MontexFirestoreService,
   firestoreService,
   ALL_FIRESTORE_COLLECTIONS,
@@ -115,6 +117,8 @@ import {
   mapFirestoreDocToSupplier,
   mapFirestoreDocToTask,
   mapFirestoreDocToTender,
+  mapFirestoreDocToLead,
+  mapLeadToFirestoreDoc,
   mapFirestoreDocToUserProfile,
   mapFurnaceLogToFirestoreDoc,
   mapHandoverToFirestoreDoc,
@@ -235,6 +239,7 @@ export interface ProductionFirestoreSnapshot {
   // All 8 persistent operational registers
   quotations: QuotationRecord[];
   tenders: TenderRecord[];
+  leads: LeadRecord[];
   purchaseOrders: PurchaseOrderRecord[];
   machineLogs: ShopMachineLog[];
   furnaceLogs: FurnaceBatchLog[];
@@ -526,6 +531,7 @@ export class MontexCutoverEngine {
       jobCostSheets: [],
       quotations: [],
       tenders: [],
+      leads: [],
       purchaseOrders: [],
       machineLogs: [],
       furnaceLogs: [],
@@ -768,6 +774,7 @@ export class MontexCutoverEngine {
     emptySnapshot.paymentFollowUps = paymentFollowUps;
     emptySnapshot.users = users;
     emptySnapshot.auditLogs = auditLogs;
+    emptySnapshot.leads = await loadIfPermitted<FirestoreLeadDoc, LeadRecord>('leads', mapFirestoreDocToLead);
     emptySnapshot.loadedCollectionsCount = loadedCount;
 
     emptySnapshot.dashboardKpis = computeLiveDashboardKpis({
@@ -1100,6 +1107,31 @@ export class MontexCutoverEngine {
     } finally {
       this.releaseLock(lockKey);
     }
+  }
+
+  /** Creates or updates a sales enquiry. Sales, CEO and Super Admin only (rules enforce the same). */
+  async upsertLead(lead: LeadRecord, isNew: boolean, user: UserProfile): Promise<CutoverWriteResult<LeadRecord>> {
+    const authCheck = this.verifyRoleWrite(user, 'leads', ['super_admin', 'ceo', 'sales'], isNew ? 'add an enquiry' : 'update an enquiry');
+    if (!authCheck.allowed) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
+    }
+    let doc: FirestoreLeadDoc;
+    try {
+      doc = mapLeadToFirestoreDoc(lead, 'production');
+    } catch (err: any) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: 'VALIDATION_FAILED', error: err?.message || 'The enquiry is missing required details.' };
+    }
+    const audit = {
+      auditAction: isNew ? 'LEAD_CREATED' : 'LEAD_UPDATED',
+      auditDetails: `${isNew ? 'Added' : 'Updated'} enquiry from ${lead.companyName} [${doc.stage}]`,
+    };
+    const res = isNew
+      ? await this.fs.createDocument('leads', lead.id, doc, audit)
+      : await this.fs.setDocument('leads', lead.id, doc, { merge: false, ...audit });
+    if (!res.success) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+    }
+    return { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: mapFirestoreDocToLead(doc) };
   }
 
   // ==========================================================================

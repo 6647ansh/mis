@@ -12,6 +12,7 @@ import {
   Layers,
   ShieldCheck,
   ShoppingCart,
+  Target,
   Truck,
   Users,
   Wallet,
@@ -46,6 +47,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Sales',
     items: [
       { id: 'sales_orders', label: 'Sales Orders', description: 'Customer POs and internal job numbers', icon: FileSpreadsheet, keywords: 'po order job' },
+      { id: 'leads', label: 'Enquiries', description: 'New customer enquiries and follow-ups', icon: Target, keywords: 'lead prospect enquiry new customer' },
       { id: 'quotations', label: 'Quotations & Tenders', description: 'RFQs, quotes and PSU tenders', icon: FileText, keywords: 'rfq quote tender' },
       { id: 'customers', label: 'Customers', description: 'Customer master and credit terms', icon: Users },
       { id: 'products', label: 'Products', description: 'Forged product catalogue and specs', icon: Boxes },

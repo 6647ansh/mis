@@ -20,6 +20,7 @@ const CommandCenter = lazyNamed(() => import('./components/dashboard/CommandCent
 const OrderTrackerPage = lazyNamed(() => import('./components/orders/OrderTrackerPage'), 'OrderTrackerPage');
 const BlueprintView = lazyNamed(() => import('./components/blueprint/BlueprintView'), 'BlueprintView');
 const QuotationsPage = lazyNamed(() => import('./components/modules/QuotationsPage'), 'QuotationsPage');
+const LeadsPage = lazyNamed(() => import('./components/modules/LeadsPage'), 'LeadsPage');
 const SalesOrdersPage = lazyNamed(() => import('./components/modules/SalesOrdersPage'), 'SalesOrdersPage');
 const ProcurementPage = lazyNamed(() => import('./components/modules/ProcurementPage'), 'ProcurementPage');
 const InventoryPage = lazyNamed(() => import('./components/modules/InventoryPage'), 'InventoryPage');
@@ -197,6 +198,7 @@ function MontexWorkspace() {
 
                 {currentTab === 'blueprint' && <BlueprintView />}
 
+                {currentTab === 'leads' && <LeadsPage onNavigate={handleNavigate} />}
                 {currentTab === 'quotations' && <QuotationsPage onSelectOrder={openOrder} />}
 
                 {currentTab === 'sales_orders' && <SalesOrdersPage onSelectOrder={openOrder} />}

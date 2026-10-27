@@ -1262,6 +1262,40 @@ export interface PaymentFollowUpRecord {
 /**
  * Pre-RFQ Commercial Lead & Customer Enquiry Record (Module B).
  */
+export type LeadStage = 'new' | 'contacted' | 'qualified' | 'rfq_received' | 'quoted' | 'won' | 'lost';
+
+/**
+ * Sales enquiry before (or until) it becomes a quotation, stored at `/leads/{leadId}`.
+ * Only facts the salesperson enters are kept; nothing is estimated.
+ */
+export interface LeadRecord {
+  id: string;
+  companyName: string;
+  contactPerson: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  industry?: string;
+  source: string;
+  productInterest: string;
+  materialGrade?: string;
+  estimatedValueInr?: number;
+  stage: LeadStage;
+  ownerUid: string;
+  ownerName: string;
+  nextFollowUpDate?: string;
+  lastContactDate?: string;
+  /** Dated follow-up notes, newest first. */
+  notes?: string;
+  lostReason?: string;
+  customerId?: string;
+  quotationId?: string;
+  createdByUid: string;
+  createdAt: string;
+  updatedAt?: string;
+  dataOrigin?: DataRecordOrigin;
+}
+
 export interface PreRfqLeadRecord {
   id: string;
   leadDate: string;

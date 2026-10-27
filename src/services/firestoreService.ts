@@ -50,6 +50,7 @@ export const FIRESTORE_COLLECTIONS = {
   AUDIT_LOGS: 'auditLogs',
   QUOTATIONS: 'quotations',
   TENDERS: 'tenders',
+  LEADS: 'leads',
   SUPPLIERS: 'suppliers',
   PURCHASE_ORDERS: 'purchaseOrders',
   MACHINE_LOGS: 'machineLogs',
@@ -97,6 +98,7 @@ export const COLLECTION_PRIMARY_KEY_FIELD: Readonly<
   auditLogs: 'id',
   quotations: 'id',
   tenders: 'id',
+  leads: 'id',
   suppliers: 'id',
   purchaseOrders: 'id',
   machineLogs: 'id',
@@ -438,6 +440,33 @@ export interface FirestoreQuotationDoc {
   estimatedMarginPercent?: number;
   deliveryLeadWeeks?: number;
   isRepeatOrder?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  dataOrigin?: DataRecordOrigin;
+}
+
+export interface FirestoreLeadDoc {
+  id: string;
+  companyName: string;
+  contactPerson: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  industry?: string;
+  source: string;
+  productInterest: string;
+  materialGrade?: string;
+  estimatedValueINR?: number;
+  stage: 'New' | 'Contacted' | 'Qualified' | 'RFQ Received' | 'Quoted' | 'Won' | 'Lost';
+  ownerUid: string;
+  ownerName: string;
+  nextFollowUpDate?: string;
+  lastContactDate?: string;
+  notes?: string;
+  lostReason?: string;
+  customerId?: string;
+  quotationId?: string;
+  createdByUid: string;
   createdAt: string;
   updatedAt: string;
   dataOrigin?: DataRecordOrigin;
@@ -1086,6 +1115,7 @@ const COLLECTION_READ_ROLES: Readonly<
   auditLogs: ['super_admin', 'ceo'],
   quotations: ['super_admin', 'ceo', 'sales', 'finance'],
   tenders: ['super_admin', 'ceo', 'sales', 'finance'],
+  leads: ['super_admin', 'ceo', 'sales'],
   suppliers: [
     'super_admin',
     'ceo',
@@ -1194,6 +1224,7 @@ const COLLECTION_CREATE_ROLES: Readonly<
   ],
   quotations: ['super_admin', 'ceo', 'sales'],
   tenders: ['super_admin', 'ceo', 'sales'],
+  leads: ['super_admin', 'ceo', 'sales'],
   suppliers: ['super_admin', 'ceo', 'purchase'],
   purchaseOrders: ['super_admin', 'ceo', 'purchase'],
   machineLogs: ['super_admin', 'ceo', 'stores'],
@@ -1263,6 +1294,7 @@ const COLLECTION_UPDATE_ROLES: Readonly<
   auditLogs: [], // Immutable append-only audit log
   quotations: ['super_admin', 'ceo', 'sales'],
   tenders: ['super_admin', 'ceo', 'sales'],
+  leads: ['super_admin', 'ceo', 'sales'],
   suppliers: ['super_admin', 'ceo', 'purchase'],
   purchaseOrders: ['super_admin', 'ceo', 'purchase', 'stores'],
   machineLogs: ['super_admin', 'ceo', 'stores'],
