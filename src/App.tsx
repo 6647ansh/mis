@@ -26,7 +26,7 @@ const InventoryView = lazyNamed(() => import('./components/modules/InventoryView
 const ProductionPage = lazyNamed(() => import('./components/modules/ProductionPage'), 'ProductionPage');
 const QualityPage = lazyNamed(() => import('./components/modules/QualityPage'), 'QualityPage');
 const DispatchPage = lazyNamed(() => import('./components/modules/DispatchPage'), 'DispatchPage');
-const FinanceView = lazyNamed(() => import('./components/modules/FinanceView'), 'FinanceView');
+const FinancePage = lazyNamed(() => import('./components/modules/FinancePage'), 'FinancePage');
 const MasterDataView = lazyNamed(() => import('./components/modules/MasterDataView'), 'MasterDataView');
 const NotificationsView = lazyNamed(() => import('./components/modules/NotificationsView'), 'NotificationsView');
 const ReportsView = lazyNamed(() => import('./components/modules/ReportsView'), 'ReportsView');
@@ -211,7 +211,7 @@ function MontexWorkspace() {
 
                 {currentTab === 'dispatch' && <DispatchPage />}
 
-                {currentTab === 'finance' && <FinanceView />}
+                {currentTab === 'finance' && <FinancePage />}
 
                 {currentTab === 'customers' && <MasterDataView initialType="customers" />}
 

@@ -1167,7 +1167,8 @@ service cloud.firestore {
         'loggedByName', 'loggedByRole', 'createdAt', 'updatedAt', 'dataOrigin'
       ]) &&
       data.id is string && data.id == followUpId && data.id.size() >= 1 && data.id.size() <= 128 &&
-      isValidId(data.invoiceId) &&
+      // Invoice numbers are free text (Tally style, e.g. MF/26-27/0914), not document ids.
+      data.invoiceId is string && data.invoiceId.size() >= 1 && data.invoiceId.size() <= 64 &&
       (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128)) &&
       (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
       data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 160 &&

@@ -2567,33 +2567,54 @@ export function mapFirestoreDocToNcrCapa(doc: FirestoreNcrCapaDoc): NcrCapaRecor
   };
 }
 
+const FOLLOW_UP_OUTCOME_BY_STATUS: Record<string, FirestorePaymentFollowUpDoc['outcome']> = {
+  promised: 'Payment Promised',
+  part_received: 'Part Payment Released',
+  received: 'Cleared',
+  settled: 'Cleared',
+  contacted: 'No Response',
+  scheduled: 'No Response',
+  escalated_credit_hold: 'Dispute Raised',
+};
+const FOLLOW_UP_STATUS_BY_OUTCOME: Record<string, PaymentFollowUpRecord['status']> = {
+  'Payment Promised': 'promised',
+  'Part Payment Released': 'part_received',
+  Cleared: 'received',
+  'Dispute Raised': 'escalated_credit_hold',
+  'No Response': 'contacted',
+};
+
 export function mapPaymentFollowUpToFirestoreDoc(
   pf: PaymentFollowUpRecord,
   dataOrigin: DataRecordOrigin = 'production'
 ): FirestorePaymentFollowUpDoc {
   const nowIso = new Date().toISOString();
+  const invoiceId = pf.invoiceId || pf.invoiceNumber;
+  const contact = pf.contactPerson || pf.contactedPerson;
+  if (!invoiceId) throw new RecordValidationError('Enter the invoice number being followed up.');
+  if (!pf.customerName) throw new RecordValidationError('Choose the customer.');
+  if (!contact || contact.trim().length < 2) throw new RecordValidationError('Enter who you spoke to.');
+  if (!pf.nextFollowUpDate) throw new RecordValidationError('Enter the next follow-up date.');
+  if (!pf.loggedByUid || !pf.loggedByName || !pf.loggedByRole) throw new RecordValidationError('The follow-up must name who logged it.');
+  const promisedAmount = pf.promisedAmountINR ?? pf.promisedAmountInr;
+  const promisedDate = pf.promisedDate || pf.promisedPaymentDate;
   return {
     id: pf.id,
-    invoiceId: (pf.invoiceId || pf.invoiceNumber || 'INV-2026-001').slice(0, 128),
-    orderId: pf.orderId ? pf.orderId.slice(0, 128) : undefined,
-    customerId: pf.customerId ? pf.customerId.slice(0, 128) : undefined,
-    customerName: (pf.customerName || 'Montex Customer').slice(0, 160),
-    contactPerson: (pf.contactPerson || pf.contactedPerson || 'Accounts Payable').slice(0, 120),
+    invoiceId: invoiceId.slice(0, 128),
+    orderId: optionalText(pf.orderId, 128),
+    customerId: optionalText(pf.customerId, 128),
+    customerName: pf.customerName.slice(0, 160),
+    contactPerson: contact.trim().slice(0, 120),
     followUpDate: (pf.followUpDate || nowIso.split('T')[0]).slice(0, 40),
-    nextFollowUpDate: (pf.nextFollowUpDate || nowIso.split('T')[0]).slice(0, 40),
-    promisedAmountINR:
-      (pf.promisedAmountINR ?? pf.promisedAmountInr) !== undefined
-        ? Math.max(0, (pf.promisedAmountINR ?? pf.promisedAmountInr)!)
-        : undefined,
-    promisedDate: (pf.promisedDate || pf.promisedPaymentDate)
-      ? (pf.promisedDate || pf.promisedPaymentDate)!.slice(0, 40)
-      : undefined,
+    nextFollowUpDate: pf.nextFollowUpDate.slice(0, 40),
+    promisedAmountINR: promisedAmount !== undefined && promisedAmount > 0 ? promisedAmount : undefined,
+    promisedDate: optionalText(promisedDate, 40),
     followUpMode: (pf.followUpMode || pf.modeOfCommunication || 'Phone Call') as any,
-    outcome: (pf.outcome || pf.status || 'Payment Promised') as any,
-    notes: (pf.notes || pf.remarks) ? (pf.notes || pf.remarks)!.slice(0, 600) : undefined,
-    loggedByUid: (pf.loggedByUid || 'uid_sales').slice(0, 128),
-    loggedByName: (pf.loggedByName || 'Sales Officer').slice(0, 160),
-    loggedByRole: (pf.loggedByRole || 'sales') as any,
+    outcome: (pf.outcome || FOLLOW_UP_OUTCOME_BY_STATUS[pf.status] || 'No Response') as any,
+    notes: optionalText(pf.notes || pf.remarks, 600),
+    loggedByUid: pf.loggedByUid.slice(0, 128),
+    loggedByName: pf.loggedByName.slice(0, 160),
+    loggedByRole: pf.loggedByRole as any,
     createdAt: pf.createdAt && pf.createdAt.length >= 4 ? pf.createdAt : nowIso,
     updatedAt: nowIso,
     dataOrigin,
@@ -2603,21 +2624,24 @@ export function mapPaymentFollowUpToFirestoreDoc(
 export function mapFirestoreDocToPaymentFollowUp(
   doc: FirestorePaymentFollowUpDoc
 ): PaymentFollowUpRecord {
-  const promised = doc.promisedAmountINR ?? 500000;
+  const promised = doc.promisedAmountINR ?? 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const due = doc.promisedDate || '';
   return {
     ...doc,
-    customerId: doc.customerId || 'CUST-001',
+    customerId: doc.customerId || '',
     invoiceNumber: doc.invoiceId,
-    invoiceAmountInr: promised,
-    outstandingAmountInr: promised,
-    dueDate: doc.nextFollowUpDate,
-    overdueDays: 15,
+    // Invoice and outstanding amounts are not stored on a follow-up; they come from receivables.
+    invoiceAmountInr: 0,
+    outstandingAmountInr: 0,
+    dueDate: due,
+    overdueDays: due && due < today ? Math.floor((Date.parse(today) - Date.parse(due)) / 86_400_000) : 0,
     contactedPerson: doc.contactPerson,
-    promisedPaymentDate: doc.promisedDate || doc.nextFollowUpDate,
+    promisedPaymentDate: due,
     promisedAmountInr: promised,
-    modeOfCommunication: doc.followUpMode || 'Phone Call',
+    modeOfCommunication: doc.followUpMode,
     remarks: doc.notes || '',
-    status: 'promised',
+    status: FOLLOW_UP_STATUS_BY_OUTCOME[doc.outcome] || 'contacted',
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

@@ -1898,8 +1898,20 @@ export class MontexFirestoreService {
     path: string | null
   ): FirestoreErrorInfo {
     const caller = this.callerProvider();
+    const raw = error instanceof Error ? error.message : String(error);
+    const code = String((error as any)?.code || '');
+    // Users see a plain explanation; the raw rules text stays in the console for support.
+    const friendly =
+      code.includes('permission-denied') || raw.includes('PERMISSION_DENIED')
+        ? 'The database refused this change. Your role may not allow it, or a value is not in the accepted format.'
+        : code.includes('unavailable') || code.includes('deadline-exceeded')
+        ? 'Could not reach the database. Check the internet connection and try again.'
+        : code.includes('not-found')
+        ? 'That record no longer exists. Refresh and try again.'
+        : raw;
+    if (friendly !== raw) console.warn(`[firestore] ${operationType} ${path ?? ''}:`, raw);
     return {
-      error: error instanceof Error ? error.message : String(error),
+      error: friendly,
       operationType,
       path,
       authInfo: {

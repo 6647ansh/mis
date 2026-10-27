@@ -439,8 +439,14 @@ async function main() {
     raisedByName: INITIAL_NCR_CAPA_RECORDS[0].raisedByName || 'QC Engineer',
   };
   const ncrRes = await engine.upsertNcrCapaRecord(ncrFixture, true, ceoUser, false);
+  const pfFixture = {
+    ...INITIAL_PAYMENT_FOLLOW_UPS[0],
+    loggedByUid: INITIAL_PAYMENT_FOLLOW_UPS[0].loggedByUid || 'uid_finance',
+    loggedByName: INITIAL_PAYMENT_FOLLOW_UPS[0].loggedByName || 'Finance Officer',
+    loggedByRole: INITIAL_PAYMENT_FOLLOW_UPS[0].loggedByRole || ('finance' as const),
+  };
   const pfRes = await engine.upsertPaymentFollowUpRecord(
-    INITIAL_PAYMENT_FOLLOW_UPS[0],
+    pfFixture,
     true,
     ceoUser,
     false
@@ -454,7 +460,7 @@ async function main() {
   );
   const rtNcr = mapFirestoreDocToNcrCapa(mapNcrCapaToFirestoreDoc(ncrFixture));
   const rtPf = mapFirestoreDocToPaymentFollowUp(
-    mapPaymentFollowUpToFirestoreDoc(INITIAL_PAYMENT_FOLLOW_UPS[0])
+    mapPaymentFollowUpToFirestoreDoc(pfFixture)
   );
 
   assertCheck(

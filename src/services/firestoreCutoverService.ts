@@ -3329,7 +3329,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapPaymentFollowUpToFirestoreDoc(followUp, 'production');
+    let docPayload: ReturnType<typeof mapPaymentFollowUpToFirestoreDoc>;
+    try {
+      docPayload = mapPaymentFollowUpToFirestoreDoc(followUp, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The follow-up is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('paymentFollowUps', followUp.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'PAYMENT_FOLLOWUP_CREATED' : 'PAYMENT_FOLLOWUP_UPDATED',

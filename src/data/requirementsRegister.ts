@@ -965,7 +965,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'creditExceeded',
       'oldestInvoiceDate',
     ],
-    sourceFiles: ['src/components/modules/FinanceView.tsx'],
+    sourceFiles: ['src/components/modules/FinancePage.tsx'],
     rtdbPath: '/outstandingPayments/$customerId',
     status: 'Implemented',
     implementationNotes:
@@ -993,7 +993,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'transportFreightCostInr',
       'overheadCostInr',
     ],
-    sourceFiles: ['src/components/modules/FinanceView.tsx'],
+    sourceFiles: ['src/components/modules/FinancePage.tsx'],
     rtdbPath: 'Computed from /salesOrders, /inventory, /production + Cost Sheet Register',
     status: 'Implemented',
     implementationNotes:
