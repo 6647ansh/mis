@@ -24,3 +24,12 @@ export function formatNumber(value: number, digits = 0) {
     ? value.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: digits })
     : '—';
 }
+
+/** "31 Oct 2026" from an ISO date or YYYY-MM-DD; empty input gives "—". */
+export function formatDate(value?: string | null) {
+  if (!value) return '—';
+  const d = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  return Number.isNaN(d.getTime())
+    ? value
+    : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
