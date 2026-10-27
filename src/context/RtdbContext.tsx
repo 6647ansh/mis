@@ -309,6 +309,10 @@ interface RtdbContextType {
   createMaintenanceTicketRecord: (
     ticket: MachineMaintenanceTicket
   ) => Promise<CutoverWriteResult<MachineMaintenanceTicket>>;
+  updateMaintenanceTicketStatus: (
+    ticket: MachineMaintenanceTicket,
+    status: MachineMaintenanceTicket['status']
+  ) => Promise<CutoverWriteResult<MachineMaintenanceTicket>>;
   createPowerLogRecord: (
     powerLog: PowerConsumptionLog
   ) => Promise<CutoverWriteResult<PowerConsumptionLog>>;
@@ -1285,6 +1289,18 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setStockMovements((prev) =>
         prev.some((m) => m.id === movement.id) ? prev : [movement, ...prev]
       );
+    }
+    return res;
+  };
+
+  const updateMaintenanceTicketStatus = async (
+    ticket: MachineMaintenanceTicket,
+    status: MachineMaintenanceTicket['status']
+  ) => {
+    const res = await cutoverEngine.updateMaintenanceTicketStatus(ticket, status, currentUser);
+    if (res.success && res.data) {
+      const saved = res.data;
+      setMaintenanceTickets((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
     }
     return res;
   };
@@ -2786,6 +2802,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createFurnaceLogRecord,
         createMaintenanceTicketRecord,
         createPowerLogRecord,
+        updateMaintenanceTicketStatus,
         createDimensionalReportRecord,
         createSalesOrderRecord,
         updateSalesOrderRecord,

@@ -537,7 +537,7 @@ export function mapMachineLogToFirestoreDoc(
 }
 
 export function mapFirestoreDocToMachineLog(doc: FirestoreMachineLogDoc): ShopMachineLog {
-  const { primary: operatorName, meta } = unpackMeta(doc.operatorName, 'Shop Operator');
+  const { primary: operatorName, meta } = unpackMeta(doc.operatorName, '');
   const shiftLabelMap: Record<FirestoreMachineLogDoc['shift'], ShopMachineLog['shift']> = {
     'Shift A': 'Shift A (06:00-14:00)',
     'Shift B': 'Shift B (14:00-22:00)',
@@ -563,15 +563,15 @@ export function mapFirestoreDocToMachineLog(doc: FirestoreMachineLogDoc): ShopMa
     machineId: doc.machineId,
     machineName: doc.machineName,
     operatorName,
-    jobNumber: doc.orderId || 'JOB-MF-2026-0412',
-    productName: meta.pn || 'Forged Component',
+    jobNumber: doc.orderId || '',
+    productName: meta.pn || '',
     inputBilletsPcs,
     forgedOutputPcs,
     okPcs,
     rejectedPcs,
     reworkPcs,
     downtimeMinutes: doc.downtimeMinutes ?? 0,
-    capacityUtilizationPercent: doc.utilizationPct ?? 88,
+    capacityUtilizationPercent: doc.utilizationPct ?? 0,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }
@@ -640,7 +640,7 @@ export function mapFurnaceLogToFirestoreDoc(
 }
 
 export function mapFirestoreDocToFurnaceLog(doc: FirestoreFurnaceLogDoc): FurnaceBatchLog {
-  const { primary: jobNumber, meta } = unpackMeta(doc.orderId, 'JOB-MF-2026-0412');
+  const { primary: jobNumber, meta } = unpackMeta(doc.orderId, '');
   const chargeWeightMt = doc.chargeWeightMT;
   const fuelConsumedQty = doc.fuelConsumedSCM ?? 0;
 
@@ -653,11 +653,11 @@ export function mapFirestoreDocToFurnaceLog(doc: FirestoreFurnaceLogDoc): Furnac
     furnaceName: meta.fn || `${doc.furnaceId} Furnace`,
     fuelType: (meta.ft as FurnaceBatchLog['fuelType']) || 'PNG (Natural Gas)',
     jobNumber,
-    heatNumber: meta.ht || 'HEAT-VERIFIED',
+    heatNumber: meta.ht || '',
     chargeWeightMt,
     targetTempC: doc.targetTempC,
     peakRecordedTempC: meta.pk !== undefined ? Number(meta.pk) : doc.targetTempC,
-    soakingTimeMinutes: Math.round((doc.soakTimeHours ?? 3) * 60),
+    soakingTimeMinutes: Math.round((doc.soakTimeHours ?? 0) * 60),
     fuelConsumedQty,
     fuelUnit: (meta.fu as FurnaceBatchLog['fuelUnit']) || 'SCM',
     specificFuelPerMt:
@@ -746,7 +746,7 @@ export function mapFirestoreDocToMaintenanceTicket(
 ): MachineMaintenanceTicket {
   const { primary: technicianName, meta } = unpackMeta(
     doc.assignedTechnician,
-    'Maintenance Team'
+    ''
   );
   const reverseTypeMap: Record<
     FirestoreMaintenanceTicketDoc['maintenanceType'],
@@ -769,8 +769,8 @@ export function mapFirestoreDocToMaintenanceTicket(
       reverseTypeMap[doc.maintenanceType] ||
       'Breakdown',
     issueDescription: doc.issueDescription,
-    rootCause: meta.rc || 'Logged in Shop-Floor Maintenance Register',
-    replacementParts: meta.rp || 'None / Standard Spares',
+    rootCause: meta.rc || '',
+    replacementParts: meta.rp || '',
     downtimeMinutes:
       meta.dm !== undefined
         ? Number(meta.dm)
@@ -814,8 +814,8 @@ export function mapPowerLogToFirestoreDoc(
     pngGasSCM: 0,
     productionOutputMT: Math.max(0, p.forgedOutputMt || 0),
     kwhPerMT: Math.max(0, p.specificEnergyKwhPerMt || 0),
-    powerFactor: Math.min(1, Math.max(0, p.powerFactor || 0.98)),
-    peakDemandKva: Math.max(0, p.peakDemandKva || 0),
+    powerFactor: p.powerFactor ? Math.min(1, Math.max(0, p.powerFactor)) : undefined,
+    peakDemandKva: p.peakDemandKva ? Math.max(0, p.peakDemandKva) : undefined,
     loggedBy,
     createdAt: p.date && p.date.length >= 4 ? p.date : nowIso,
     updatedAt: nowIso,
@@ -824,26 +824,21 @@ export function mapPowerLogToFirestoreDoc(
 }
 
 export function mapFirestoreDocToPowerLog(doc: FirestorePowerLogDoc): PowerConsumptionLog {
-  const { meta } = unpackMeta(doc.loggedBy, 'HT Substation');
-  const totalKwh = doc.electricityKwh;
-  const powerFactor = doc.powerFactor ?? 0.98;
-
+  const { meta } = unpackMeta(doc.loggedBy, '');
+  const n = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : Number(v));
   return {
     id: doc.id,
     date: doc.logDate,
-    totalKwh,
-    totalKvah:
-      meta.kvah !== undefined
-        ? Number(meta.kvah)
-        : Math.round(totalKwh / Math.max(0.5, powerFactor)),
-    powerFactor,
-    peakDemandKva: doc.peakDemandKva ?? 1100,
+    totalKwh: doc.electricityKwh,
+    totalKvah: n(meta.kvah),
+    powerFactor: doc.powerFactor || undefined,
+    peakDemandKva: doc.peakDemandKva || undefined,
     forgedOutputMt: doc.productionOutputMT,
     specificEnergyKwhPerMt: doc.kwhPerMT,
-    targetKwhPerMt: meta.tgt !== undefined ? Number(meta.tgt) : 680,
-    electricityCostInr: meta.cost !== undefined ? Number(meta.cost) : Math.round(totalKwh * 9.2),
-    furnaceSharePercent: meta.fs !== undefined ? Number(meta.fs) : 44,
-    pressHammerSharePercent: meta.ps !== undefined ? Number(meta.ps) : 38,
+    targetKwhPerMt: n(meta.tgt),
+    electricityCostInr: n(meta.cost),
+    furnaceSharePercent: n(meta.fs),
+    pressHammerSharePercent: n(meta.ps),
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

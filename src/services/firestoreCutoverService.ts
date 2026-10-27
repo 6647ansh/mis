@@ -2335,6 +2335,26 @@ export class MontexCutoverEngine {
    * Rules limit quality clearance to Quality/CEO/Super Admin and finance clearance to
    * Finance/CEO/Super Admin, and require the clearance to name the caller.
    */
+  /** Moves a maintenance ticket to a new status (e.g. in repair → resolved). */
+  async updateMaintenanceTicketStatus(
+    ticket: MachineMaintenanceTicket,
+    status: MachineMaintenanceTicket['status'],
+    user: UserProfile
+  ): Promise<CutoverWriteResult<MachineMaintenanceTicket>> {
+    const authCheck = this.verifyRoleWrite(user, 'maintenanceTickets', ['super_admin', 'ceo', 'stores'], 'update a maintenance ticket');
+    if (!authCheck.allowed) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
+    }
+    const updated = { ...ticket, status };
+    const doc = mapMaintenanceTicketToFirestoreDoc(updated, 'production') as Record<string, any>;
+    // Status also lives in the packed technician field, so both are rewritten together.
+    const patch = Object.fromEntries(['status', 'assignedTechnician', 'updatedAt'].filter((k) => doc[k] !== undefined).map((k) => [k, doc[k]]));
+    const res = await this.fs.updateDocument('maintenanceTickets', ticket.id, patch);
+    return res.success
+      ? { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: updated }
+      : { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+  }
+
   /**
    * Adds shop-floor or QC quantities to an order's line item. Runs in a transaction on the
    * stored order, so two supervisors logging at once never overwrite each other's counts.

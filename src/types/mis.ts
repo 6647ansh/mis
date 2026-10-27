@@ -796,15 +796,16 @@ export interface PowerConsumptionLog {
   id: string;
   date: string; // YYYY-MM-DD
   totalKwh: number;
-  totalKvah: number;
-  powerFactor: number;
-  peakDemandKva: number;
+  // Optional readings are left undefined when not recorded, never estimated.
+  totalKvah?: number;
+  powerFactor?: number;
+  peakDemandKva?: number;
   forgedOutputMt: number;
   specificEnergyKwhPerMt: number;
-  targetKwhPerMt: number;
-  electricityCostInr: number;
-  furnaceSharePercent: number;
-  pressHammerSharePercent: number;
+  targetKwhPerMt?: number;
+  electricityCostInr?: number;
+  furnaceSharePercent?: number;
+  pressHammerSharePercent?: number;
   dataOrigin?: DataRecordOrigin;
 }
 

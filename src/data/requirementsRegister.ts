@@ -854,7 +854,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'rejectedPcs',
       'reworkPcs',
     ],
-    sourceFiles: ['src/components/modules/ProductionShopFloorView.tsx'],
+    sourceFiles: ['src/components/modules/ProductionPage.tsx'],
     rtdbPath: '/production',
     status: 'Implemented',
     implementationNotes:
@@ -880,7 +880,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'fuelConsumedQty',
       'specificFuelPerMt',
     ],
-    sourceFiles: ['src/components/modules/ProductionShopFloorView.tsx'],
+    sourceFiles: ['src/components/modules/ProductionPage.tsx'],
     rtdbPath: '/production, /alerts/thresholds',
     status: 'Implemented',
     implementationNotes:
@@ -1020,7 +1020,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'downtimeMinutes',
       'maintenanceCostInr',
     ],
-    sourceFiles: ['src/components/modules/ProductionShopFloorView.tsx'],
+    sourceFiles: ['src/components/modules/ProductionPage.tsx'],
     rtdbPath: '/production, /alerts/thresholds',
     status: 'Implemented',
     implementationNotes:
@@ -1046,7 +1046,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'targetKwhPerMt',
       'electricityCostInr',
     ],
-    sourceFiles: ['src/components/modules/ProductionShopFloorView.tsx'],
+    sourceFiles: ['src/components/modules/ProductionPage.tsx'],
     rtdbPath: '/production',
     status: 'Implemented',
     implementationNotes:
