@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ClearanceQueue } from '../orders/ClearanceQueue';
 import {
   Upload,
   FileSpreadsheet,
@@ -587,6 +588,8 @@ export const FinanceView: React.FC = () => {
           </button>
         </div>
       )}
+
+      <ClearanceQueue kind="finance" />
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 gap-2 overflow-x-auto">

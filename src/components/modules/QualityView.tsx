@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ClearanceQueue } from '../orders/ClearanceQueue';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -562,6 +563,8 @@ export const QualityView: React.FC = () => {
           actionText="Confirm with Quality Assurance whether 508 PCS were inspected in total (500 passed + 8 rejected) or 492 PCS passed out of 500 inspected."
         />
       )}
+
+      <ClearanceQueue kind="quality" />
 
       {/* KPI row */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

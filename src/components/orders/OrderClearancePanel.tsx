@@ -4,7 +4,8 @@ import { CheckCircle2, Circle, ShieldCheck } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
 import type { OrderJourney } from '../../types/mis';
 import { Button } from '@/components/ui/button';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatNumber } from '@/lib/utils';
+import { qualityDiscrepancy } from './ClearanceQueue';
 
 type Kind = 'quality' | 'finance';
 
@@ -37,6 +38,7 @@ export function OrderClearancePanel({ order }: { order: OrderJourney }) {
   };
 
   const ready = Boolean(order.qualityClearedBy && order.financeClearedBy);
+  const excess = qualityDiscrepancy(order);
 
   return (
     <section aria-label="Dispatch clearances" className="rounded-xl border border-border">
@@ -66,6 +68,11 @@ export function OrderClearancePanel({ order }: { order: OrderJourney }) {
                 <p className="truncate text-xs text-muted-foreground">
                   {by ? `Given by ${nameOf(by)} on ${formatDate(at)}` : mayChange ? COPY[kind].giveHint : 'Not given yet'}
                 </p>
+                {kind === 'quality' && !by && excess > 0 && (
+                  <p className="text-xs font-medium text-destructive">
+                    On hold: passed + rejected is {formatNumber(excess)} pieces more than produced.
+                  </p>
+                )}
               </div>
               {mayChange &&
                 (by ? (
@@ -73,7 +80,14 @@ export function OrderClearancePanel({ order }: { order: OrderJourney }) {
                     Withdraw
                   </Button>
                 ) : (
-                  <Button size="sm" variant="bronze" loading={busy === kind} onClick={() => toggle(kind, true)}>
+                  <Button
+                    size="sm"
+                    variant="bronze"
+                    loading={busy === kind}
+                    disabled={kind === 'quality' && excess > 0}
+                    title={kind === 'quality' && excess > 0 ? `Resolve the ${formatNumber(excess)}-piece mismatch first` : undefined}
+                    onClick={() => toggle(kind, true)}
+                  >
                     Give clearance
                   </Button>
                 ))}
