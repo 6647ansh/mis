@@ -765,7 +765,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'standardSellingPrice',
     ],
     sourceFiles: [
-      'src/components/modules/MasterDataView.tsx',
+      'src/components/modules/MasterDataPage.tsx',
       'src/services/rtdbService.ts',
     ],
     rtdbPath: '/customers/$customerId, /products/$productId',

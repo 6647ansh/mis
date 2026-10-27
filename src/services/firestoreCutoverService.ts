@@ -2686,7 +2686,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapCustomerToFirestoreDoc(customer, 'production');
+    let docPayload: ReturnType<typeof mapCustomerToFirestoreDoc>;
+    try {
+      docPayload = mapCustomerToFirestoreDoc(customer, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The customer is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('customers', customer.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'CUSTOMER_CREATED' : 'CUSTOMER_UPDATED',
@@ -2743,7 +2754,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapProductToFirestoreDoc(product, 'production');
+    let docPayload: ReturnType<typeof mapProductToFirestoreDoc>;
+    try {
+      docPayload = mapProductToFirestoreDoc(product, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The product is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('products', product.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'PRODUCT_CREATED' : 'PRODUCT_UPDATED',

@@ -1399,6 +1399,13 @@ const optionalText = (value: string | undefined, max: number) => {
   return clean ? clean.slice(0, max) : undefined;
 };
 
+/** Required free text: trimmed, length-capped, and refused (not invented) when blank. */
+function requiredText(v: string | undefined | null, max: number, message: string): string {
+  const t = String(v ?? '').trim();
+  if (t.length < 2) throw new RecordValidationError(message);
+  return t.slice(0, max);
+}
+
 export function mapQualityInspectionToFirestoreDoc(
   q: QualityInspectionRecord,
   dataOrigin: DataRecordOrigin = 'production'
@@ -1731,19 +1738,19 @@ export function mapCustomerToFirestoreDoc(
   const nowIso = new Date().toISOString();
   return {
     id: c.id,
-    code: (c.code || `MF-${c.id}`).slice(0, 64),
-    name: (c.name || 'Industrial Customer').slice(0, 160),
-    contactPerson: (c.contactPerson || 'Procurement Head').slice(0, 120),
-    email: (c.email || 'procurement@customer.com').slice(0, 160),
-    phone: (c.phone || '+91-20-00000000').slice(0, 40),
+    code: (c.code || c.id).slice(0, 64),
+    name: requiredText(c.name, 160, 'Enter the customer name.'),
+    contactPerson: requiredText(c.contactPerson, 120, 'Enter the contact person.'),
+    email: requiredText(c.email, 160, 'Enter the contact email.'),
+    phone: optionalText(c.phone, 40),
     creditLimit: Math.max(0, c.creditLimit || 0),
-    paymentTermsDays: Math.max(0, c.creditDays || 45),
-    location: (c.location || 'Pune, MH').slice(0, 160),
-    industry: (c.industry || 'Process Equipment & EPC').slice(0, 120),
-    assignedSalesPerson: (c.assignedSalesPerson || 'Anil Verma').slice(0, 120),
+    paymentTermsDays: Math.max(0, c.creditDays || 0),
+    location: optionalText(c.location, 160),
+    industry: optionalText(c.industry, 120),
+    assignedSalesPerson: optionalText(c.assignedSalesPerson, 120),
     totalOrders: Math.max(0, c.totalOrders || 0),
     totalOutstanding: Math.max(0, c.totalOutstanding || 0),
-    address: (c.location || 'Pune, MH').slice(0, 400),
+    address: optionalText(c.location, 400),
     status: c.active ? 'Active' : 'Inactive',
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -1752,19 +1759,19 @@ export function mapCustomerToFirestoreDoc(
 }
 
 export function mapFirestoreDocToCustomer(doc: FirestoreCustomerDoc): Customer {
-  const { primary: packedLocation, meta } = unpackMeta(doc.address, 'Pune, MH');
+  const { primary: packedLocation, meta } = unpackMeta(doc.address, '');
   return {
     id: doc.id,
     code: doc.code || meta.cd || `MF-${doc.id}`,
     name: doc.name,
     contactPerson: doc.contactPerson,
-    phone: doc.phone || '+91-20-00000000',
+    phone: doc.phone || '',
     email: doc.email,
     location: doc.location || packedLocation,
-    industry: doc.industry || meta.ind || 'Process Equipment & EPC',
+    industry: doc.industry || meta.ind || '',
     creditLimit: doc.creditLimit,
-    creditDays: doc.paymentTermsDays ?? 45,
-    assignedSalesPerson: doc.assignedSalesPerson || meta.sp || 'Anil Verma',
+    creditDays: doc.paymentTermsDays ?? 0,
+    assignedSalesPerson: doc.assignedSalesPerson || meta.sp || '',
     active: doc.status === 'Active',
     totalOrders:
       doc.totalOrders !== undefined
@@ -1798,18 +1805,18 @@ export function mapProductToFirestoreDoc(
   return {
     id: p.id,
     code: (p.code || p.id).slice(0, 64),
-    name: (p.name || 'Forged Component').slice(0, 160),
+    name: requiredText(p.name, 160, 'Enter the product name.'),
     category: catMap[p.category] || 'Flanges',
-    steelGrade: (p.materialGrade || 'ASTM A105').slice(0, 64),
-    size: (p.size || 'Standard').slice(0, 120),
-    standard: (p.standard || 'ASME B16.5').slice(0, 120),
-    standardWeightKg: Math.max(0.1, p.standardWeightKg || 10),
+    steelGrade: requiredText(p.materialGrade, 64, 'Enter the material grade.'),
+    size: optionalText(p.size, 120),
+    standard: optionalText(p.standard, 120),
+    standardWeightKg: p.standardWeightKg > 0 ? p.standardWeightKg : (() => { throw new RecordValidationError('Enter the forged weight per piece.'); })(),
     unitPrice: Math.max(0, p.standardSellingPrice || 0),
-    hsnCode: (p.hsnCode || '73079100').slice(0, 32),
+    hsnCode: optionalText(p.hsnCode, 32),
     uom: (p.uom || 'PCS').slice(0, 24),
     drawingNo: (p.code || p.id).slice(0, 80),
     heatTreatmentReq: packMeta(
-      p.standard || 'ASME B16.5',
+      p.standard || '',
       {
         sz: p.size,
         hsn: p.hsnCode,
@@ -1825,7 +1832,7 @@ export function mapProductToFirestoreDoc(
 }
 
 export function mapFirestoreDocToProduct(doc: FirestoreProductDoc): Product {
-  const { primary: packedStandard, meta } = unpackMeta(doc.heatTreatmentReq, 'ASME B16.5');
+  const { primary: packedStandard, meta } = unpackMeta(doc.heatTreatmentReq, '');
   const reverseCat: Record<FirestoreProductDoc['category'], Product['category']> = {
     Flanges: 'Flange',
     'Rolled Rings': 'Forged Ring',
@@ -1839,12 +1846,12 @@ export function mapFirestoreDocToProduct(doc: FirestoreProductDoc): Product {
     code: doc.code || doc.drawingNo || doc.id,
     name: doc.name,
     category: (meta.cat as Product['category']) || reverseCat[doc.category] || 'Flange',
-    size: doc.size || meta.sz || 'Standard',
+    size: doc.size || meta.sz || '',
     materialGrade: doc.steelGrade,
-    standard: doc.standard || packedStandard,
+    standard: doc.standard || (packedStandard === '-' ? '' : packedStandard),
     uom: (doc.uom as Product['uom']) || 'PCS',
     standardWeightKg: doc.standardWeightKg,
-    hsnCode: doc.hsnCode || meta.hsn || '73079100',
+    hsnCode: doc.hsnCode || meta.hsn || '',
     standardSellingPrice: doc.unitPrice,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
