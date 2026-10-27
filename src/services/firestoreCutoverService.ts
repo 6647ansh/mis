@@ -1290,11 +1290,24 @@ export class MontexCutoverEngine {
       const poDoc = mapPurchaseOrderToFirestoreDoc(updatedPo, 'production');
       const matDoc = mapRawMaterialToFirestoreDoc(updatedMaterial, 'production');
 
-      const poSave = await this.fs.setDocument('purchaseOrders', updatedPo.id, poDoc, {
-        merge: false,
+      const audit = {
         auditAction: 'PO_GRN_RECEIVED',
         auditDetails: `Received ${receiptQtyMt} MT under ${grnNumber} for ${po.poNumber} (Heat ${heatNumber})`,
-      });
+      };
+      // Rules let Stores change only receipt fields; the heat number is kept on the stock movement.
+      const poSave =
+        authCheck.role === 'stores'
+          ? await this.fs.updateDocument<FirestorePurchaseOrderDoc>('purchaseOrders', updatedPo.id, {
+              receivedMT: poDoc.receivedMT,
+              status: poDoc.status,
+              updatedAt: poDoc.updatedAt,
+            })
+          : await this.fs.setDocument('purchaseOrders', updatedPo.id, poDoc, { merge: false, ...audit });
+      if (poSave.success && authCheck.role === 'stores') {
+        await this.fs
+          .appendAuditLogEntry({ action: audit.auditAction, module: 'purchaseOrders', documentId: updatedPo.id, details: audit.auditDetails })
+          .catch(() => {});
+      }
       if (!poSave.success) {
         return {
           success: false,
@@ -1335,7 +1348,7 @@ export class MontexCutoverEngine {
         persistedToRtdb: false,
         code: 'OK',
         data: {
-          updatedPo: mapFirestoreDocToPurchaseOrder(poSave.data!),
+          updatedPo: authCheck.role === 'stores' ? updatedPo : mapFirestoreDocToPurchaseOrder(poSave.data as FirestorePurchaseOrderDoc),
           updatedMaterial: savedMaterial,
           movement,
         },

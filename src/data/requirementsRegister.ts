@@ -825,7 +825,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
     ],
     sourceFiles: [
       'src/components/modules/InventoryPage.tsx',
-      'src/components/modules/ProcurementView.tsx',
+      'src/components/modules/ProcurementPage.tsx',
       'src/services/rtdbService.ts',
     ],
     rtdbPath: '/inventory/rawMaterials/$materialId, /inventory/stockMovements/$movementId',

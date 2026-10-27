@@ -462,7 +462,9 @@ export function mapFirestoreDocToPurchaseOrder(
     totalValue: doc.totalAmountINR,
     expectedDeliveryDate: doc.expectedDeliveryDate,
     millHeatNumber: meta.ht || '',
+    // Quantities are the truth for receipt progress; the packed status only adds 'at mill'.
     status:
+      (receivedMt >= orderedMt && orderedMt > 0 ? 'completed' : receivedMt > 0 ? 'partially_received' : undefined) ||
       (meta.st as PurchaseOrderRecord['status']) ||
       PO_FS_TO_UI_STATUS[doc.status] ||
       'issued',
