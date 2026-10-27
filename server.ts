@@ -244,6 +244,13 @@ const isDirectExecution =
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
+  // One failed request must never take the whole app down for everyone.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[Montex MIS Server] Unhandled error (server kept running):', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[Montex MIS Server] Uncaught error (server kept running):', err);
+  });
   startServer().catch((err) => {
     console.error('[Montex MIS Server] Fatal startup error:', err);
     process.exit(1);
