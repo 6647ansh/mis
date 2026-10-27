@@ -1674,7 +1674,7 @@ export function mapActionQueueToFirestoreDoc(
   return {
     id: a.id,
     category: catMap[a.type] || 'Production',
-    severity: a.severity === 'high' ? 'HIGH' : a.severity === 'low' ? 'LOW' : 'MEDIUM',
+    severity: a.severity === 'critical' ? 'CRITICAL' : a.severity === 'high' ? 'HIGH' : a.severity === 'low' ? 'LOW' : 'MEDIUM',
     title: (a.title || 'Operational Alert').slice(0, 200),
     description: packMeta(
       a.description || '',
@@ -1682,7 +1682,7 @@ export function mapActionQueueToFirestoreDoc(
         tp: a.type,
         cs: a.customerOrSupplier,
         dp: a.daysPending,
-        sa: a.suggestedAction ? a.suggestedAction.slice(0, 40) : undefined,
+        sa: a.suggestedAction ? a.suggestedAction.slice(0, 220) : undefined,
         dept: a.assignedToDepartment,
       },
       600
@@ -1712,7 +1712,9 @@ export function mapFirestoreDocToActionQueue(doc: FirestoreActionQueueDoc): Acti
     id: doc.id,
     type: (meta.tp as ActionQueueItem['type']) || reverseCat[doc.category] || 'overdue_order',
     severity:
-      doc.severity === 'CRITICAL' || doc.severity === 'HIGH'
+      doc.severity === 'CRITICAL'
+        ? 'critical'
+        : doc.severity === 'HIGH'
         ? 'high'
         : doc.severity === 'LOW'
         ? 'low'
@@ -1722,7 +1724,7 @@ export function mapFirestoreDocToActionQueue(doc: FirestoreActionQueueDoc): Acti
     associatedRef: doc.entityRef || '-',
     customerOrSupplier: meta.cs || 'Montex Operations',
     daysPending: meta.dp !== undefined ? Number(meta.dp) : 1,
-    suggestedAction: meta.sa || 'Review and resolve operational bottleneck.',
+    suggestedAction: meta.sa || '',
     assignedToDepartment: meta.dept || doc.category,
     acknowledged: doc.status === 'ACKNOWLEDGED' || doc.status === 'RESOLVED',
     acknowledgedBy: doc.acknowledgedBy,

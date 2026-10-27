@@ -28,7 +28,7 @@ const QualityPage = lazyNamed(() => import('./components/modules/QualityPage'), 
 const DispatchPage = lazyNamed(() => import('./components/modules/DispatchPage'), 'DispatchPage');
 const FinancePage = lazyNamed(() => import('./components/modules/FinancePage'), 'FinancePage');
 const MasterDataPage = lazyNamed(() => import('./components/modules/MasterDataPage'), 'MasterDataPage');
-const NotificationsView = lazyNamed(() => import('./components/modules/NotificationsView'), 'NotificationsView');
+const AlertsPage = lazyNamed(() => import('./components/modules/AlertsPage'), 'AlertsPage');
 const ReportsView = lazyNamed(() => import('./components/modules/ReportsView'), 'ReportsView');
 const AdminPage = lazyNamed(() => import('./components/modules/AdminPage'), 'AdminPage');
 const TaskAccountabilityView = lazyNamed(() => import('./components/modules/TaskAccountabilityView'), 'TaskAccountabilityView');
@@ -219,7 +219,7 @@ function MontexWorkspace() {
 
                 {currentTab === 'reports' && <ReportsView />}
 
-                {currentTab === 'notifications' && <NotificationsView onNavigate={handleNavigate} />}
+                {currentTab === 'notifications' && <AlertsPage onNavigate={handleNavigate} />}
 
                 {currentTab === 'admin' && (
                   <AdminPage />

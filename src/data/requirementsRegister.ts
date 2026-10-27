@@ -1102,7 +1102,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
     ],
     sourceFiles: [
       'src/components/modules/ReportsView.tsx',
-      'src/components/modules/NotificationsView.tsx',
+      'src/components/modules/AlertsPage.tsx',
     ],
     rtdbPath: '/alerts/thresholds, /alerts/actionQueue',
     status: 'Implemented',
