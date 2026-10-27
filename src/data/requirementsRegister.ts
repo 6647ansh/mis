@@ -824,7 +824,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'receivedMt',
     ],
     sourceFiles: [
-      'src/components/modules/InventoryView.tsx',
+      'src/components/modules/InventoryPage.tsx',
       'src/components/modules/ProcurementView.tsx',
       'src/services/rtdbService.ts',
     ],

@@ -1292,10 +1292,8 @@ export function mapFirestoreDocToRawMaterial(doc: FirestoreRawMaterialDoc): RawM
     meta.cur !== undefined
       ? Number(meta.cur)
       : Number((availableStockMt + reservedStockMt).toFixed(2));
-  const minimumStockMt =
-    meta.min !== undefined
-      ? Number(meta.min)
-      : Math.max(0, Number((doc.reorderLevelMT * 0.65).toFixed(2)));
+  // 0 = no minimum recorded (never estimated from the reorder level).
+  const minimumStockMt = meta.min !== undefined ? Number(meta.min) : 0;
 
   const statusMap: Record<FirestoreRawMaterialDoc['status'], RawMaterialStock['status']> = {
     Healthy: 'adequate',
@@ -1309,15 +1307,15 @@ export function mapFirestoreDocToRawMaterial(doc: FirestoreRawMaterialDoc): RawM
     name: meta.nm || `${doc.steelGrade} Forging Billet`,
     grade: doc.steelGrade,
     sectionShape: 'Round Billet',
-    dimensionsMm: meta.dm || '200mm Dia',
+    dimensionsMm: meta.dm || '',
     currentStockMt,
     reservedStockMt,
     availableStockMt,
     minimumStockMt,
     reorderLevelMt: doc.reorderLevelMT,
-    standardRatePerMt: doc.unitCostPerMT ?? (meta.rt ? Number(meta.rt) : 68000),
-    supplier: doc.supplierName || 'Approved Steel Mill',
-    locationBay: doc.locationYard || 'Bay A',
+    standardRatePerMt: doc.unitCostPerMT ?? (meta.rt ? Number(meta.rt) : 0),
+    supplier: doc.supplierName || '',
+    locationBay: doc.locationYard || '',
     status: statusMap[doc.status] || 'adequate',
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
@@ -1375,11 +1373,11 @@ export function mapFirestoreDocToStockMovement(doc: FirestoreStockMovementDoc): 
     timestamp: doc.timestamp,
     materialCode: meta.mc || doc.gradeId,
     materialGrade: doc.steelGrade,
-    heatNumber: doc.heatNumber || 'HEAT-VERIFIED',
+    heatNumber: doc.heatNumber || '',
     movementType,
     quantityMt: signedQty,
     balanceAfterMt: doc.balanceAfterMT ?? 0,
-    referenceDoc: doc.referenceDocument || 'MANUAL-ENTRY',
+    referenceDoc: doc.referenceDocument || '',
     performedBy: doc.performedBy,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };

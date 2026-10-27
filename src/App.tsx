@@ -22,7 +22,7 @@ const BlueprintView = lazyNamed(() => import('./components/blueprint/BlueprintVi
 const QuotationsView = lazyNamed(() => import('./components/modules/QuotationsView'), 'QuotationsView');
 const SalesOrdersPage = lazyNamed(() => import('./components/modules/SalesOrdersPage'), 'SalesOrdersPage');
 const ProcurementView = lazyNamed(() => import('./components/modules/ProcurementView'), 'ProcurementView');
-const InventoryView = lazyNamed(() => import('./components/modules/InventoryView'), 'InventoryView');
+const InventoryPage = lazyNamed(() => import('./components/modules/InventoryPage'), 'InventoryPage');
 const ProductionPage = lazyNamed(() => import('./components/modules/ProductionPage'), 'ProductionPage');
 const QualityPage = lazyNamed(() => import('./components/modules/QualityPage'), 'QualityPage');
 const DispatchPage = lazyNamed(() => import('./components/modules/DispatchPage'), 'DispatchPage');
@@ -203,7 +203,7 @@ function MontexWorkspace() {
 
                 {currentTab === 'purchase' && <ProcurementView />}
 
-                {currentTab === 'inventory' && <InventoryView />}
+                {currentTab === 'inventory' && <InventoryPage />}
 
                 {currentTab === 'production' && <ProductionPage />}
 
