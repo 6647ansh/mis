@@ -1101,7 +1101,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'lowStockDays',
     ],
     sourceFiles: [
-      'src/components/modules/ReportsView.tsx',
+      'src/components/modules/ReportsPage.tsx',
       'src/components/modules/AlertsPage.tsx',
     ],
     rtdbPath: '/alerts/thresholds, /alerts/actionQueue',
