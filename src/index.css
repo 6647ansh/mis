@@ -152,6 +152,8 @@ th {
   font-variant-numeric: tabular-nums;
 }
 
+/* Base element styles live in a layer so component utility classes can override them. */
+@layer base {
 /* Global Keyboard Accessibility & Focus Ring Discipline */
 button:focus-visible,
 a:focus-visible,
@@ -159,7 +161,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [role="button"]:focus-visible {
-  outline: 2px solid var(--montex-brand-orange);
+  outline: 2px solid var(--color-ring);
   outline-offset: 1px;
 }
 
@@ -174,8 +176,9 @@ textarea {
 input:not([type="checkbox"]):not([type="radio"]):focus,
 select:focus,
 textarea:focus {
-  border-color: var(--montex-navy-secondary);
-  box-shadow: 0 0 0 3px rgba(35, 71, 101, 0.12);
+  border-color: var(--color-ring);
+  box-shadow: 0 0 0 3px rgb(169 117 60 / 0.18);
+}
 }
 
 /* Global Enterprise Table Refinement */

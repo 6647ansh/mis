@@ -2,6 +2,9 @@ import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Loader2, ShieldAlert } from 'lucide-react';
 import { RtdbProvider, useRtdb } from './context/RtdbContext';
 import { Header } from './components/layout/Header';
+import { CommandPalette } from './components/layout/CommandPalette';
+import { Toaster, TooltipProvider } from '@/components/ui/overlays';
+import { Button } from '@/components/ui/button';
 import { Sidebar } from './components/layout/Sidebar';
 import { SignInPage } from './components/auth/SignInPage';
 import { AccountStatusGate } from './components/auth/AccountStatusGate';
@@ -53,7 +56,34 @@ function MontexWorkspace() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedOrderId, setSelectedOrderId] = useState<string>('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('montex.sidebarCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('montex.sidebarCollapsed', sidebarCollapsed ? '1' : '0');
+    } catch {
+      // Storage may be unavailable (private mode); the toggle still works for this visit.
+    }
+  }, [sidebarCollapsed]);
+
+  // ⌘K / Ctrl+K opens search from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -107,16 +137,8 @@ function MontexWorkspace() {
   const moduleName = WORKSPACE_TAB_TO_MODULE[currentTab as WorkspaceTabId] || 'this module';
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans text-[#1C2736]">
-      <Header
-        currentTab={currentTab}
-        onNavigate={handleNavigate}
-        currentUser={currentUser}
-        onSelectUserRole={() => {}}
-        onOpenMobileMenu={() => setMobileMenuOpen(true)}
-      />
-
-      <div className="flex-1 flex overflow-hidden">
+    <TooltipProvider>
+      <div className="flex min-h-dvh bg-background font-sans text-foreground">
         <Sidebar
           currentTab={currentTab}
           onNavigate={handleNavigate}
@@ -127,8 +149,17 @@ function MontexWorkspace() {
           onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         />
 
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="max-w-7xl mx-auto">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header
+            currentTab={currentTab}
+            onNavigate={handleNavigate}
+            currentUser={currentUser}
+            onOpenMobileMenu={() => setMobileMenuOpen(true)}
+            onOpenSearch={() => setSearchOpen(true)}
+          />
+
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1440px]">
             {!isTabAuthorizedForRole ? (
               <div className="mx-auto my-12 max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
                 <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-bronze-200 bg-bronze-50 text-bronze-600">
@@ -197,8 +228,12 @@ function MontexWorkspace() {
             )}
           </div>
         </main>
+        </div>
+
+        <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} onNavigate={handleNavigate} />
+        <Toaster />
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
