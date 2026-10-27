@@ -1,12 +1,12 @@
 {
-  "projectId": "montex-mis",
-  "appId": "1:854066903245:web:d21f3cf12104215c6e9184",
-  "apiKey": "AIzaSyC8-6pKcH_Ez8R28VIDIBx6mBbvbqhyZ4k",
-  "authDomain": "montex-mis.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-montexmis-80037e3b-fbab-4539-8464-b375213a9416",
-  "storageBucket": "montex-mis.firebasestorage.app",
-  "messagingSenderId": "854066903245",
-  "measurementId": "",
-  "oAuthClientId": "854066903245-jc1hcorhm3q56hi2ik38d2srb4fvklhj.apps.googleusercontent.com",
+  "projectId": "montexforge-7d537",
+  "appId": "1:980860862120:web:9c4e86e15ec2d011f1cc9d",
+  "apiKey": "AIzaSyB0t_F-d6qOShFw_zY35v0K9PuksF_LRp0",
+  "authDomain": "montexforge-7d537.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "montexforge-7d537.firebasestorage.app",
+  "messagingSenderId": "980860862120",
+  "measurementId": "G-M9W4J7KBTY",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

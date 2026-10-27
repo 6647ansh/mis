@@ -17,19 +17,19 @@ export const SERVER_PROJECT_ID =
   process.env.FIREBASE_PROJECT_ID ||
   process.env.VITE_FIREBASE_PROJECT_ID ||
   appletConfig.projectId ||
-  'montex-mis';
+  'montexforge-7d537';
 
 export const SERVER_FIRESTORE_DATABASE_ID = (
   process.env.FIREBASE_FIRESTORE_DATABASE_ID ||
   process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
   appletConfig.firestoreDatabaseId ||
-  'ai-studio-montexmis-80037e3b-fbab-4539-8464-b375213a9416'
+  '(default)'
 ).trim();
 
 export const SERVER_RTDB_URL =
   process.env.FIREBASE_DATABASE_URL ||
   process.env.VITE_FIREBASE_DATABASE_URL ||
-  'https://montex-mis-default-rtdb.firebaseio.com/';
+  'https://montexforge-7d537-default-rtdb.firebaseio.com/';
 
 const SENSITIVE_KEY_PATTERN =
   /^(password|pass|plaintextpassword|token|idtoken|refreshtoken|accesstoken|secret|privatekey|private_key|client_secret|apikey|api_key|authorization|resetlink|oobcode)$/i;

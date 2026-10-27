@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-montexmis-80037e3b-fbab-4539-8464-b375213a9416",
+      "database": "(default)",
       "rules": "firestore.rules"
     }
   ],

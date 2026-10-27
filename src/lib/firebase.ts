@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import appletConfig from '../../firebase-applet-config.json';
 
-export const DEFAULT_RTDB_URL = 'https://montex-mis-default-rtdb.firebaseio.com/';
+export const DEFAULT_RTDB_URL = 'https://montexforge-7d537-default-rtdb.firebaseio.com/';
 export const DEFAULT_FIRESTORE_DATABASE_ID =
   appletConfig.firestoreDatabaseId || '(default)';
 

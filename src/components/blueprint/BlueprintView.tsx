@@ -71,7 +71,7 @@ export const BlueprintView: React.FC = () => {
             Montex MIS Architecture Blueprint (Firebase Stack)
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Firebase Realtime Database (<code>https://montex-mis-default-rtdb.firebaseio.com/</code>), Firebase Authentication, Security Rules, and 5-tier RBAC governance.
+            Firebase Realtime Database (<code>https://montexforge-7d537-default-rtdb.firebaseio.com/</code>), Firebase Authentication, Security Rules, and 5-tier RBAC governance.
           </p>
         </div>
 
@@ -111,7 +111,7 @@ export const BlueprintView: React.FC = () => {
             <div className="border-b pb-3">
               <h2 className="text-base font-bold text-slate-900">Repository, Runtime & Realtime Database Architecture</h2>
               <p className="text-slate-500">
-                Connected to <code>https://montex-mis-default-rtdb.firebaseio.com/</code> via singleton Firebase JS SDK (<code>getDatabase(app, databaseURL)</code>).
+                Connected to <code>https://montexforge-7d537-default-rtdb.firebaseio.com/</code> via singleton Firebase JS SDK (<code>getDatabase(app, databaseURL)</code>).
               </p>
             </div>
 
@@ -121,11 +121,11 @@ export const BlueprintView: React.FC = () => {
                 <div className="space-y-2 pt-1">
                   <div>
                     <span className="text-slate-500 block">Realtime Database Instance:</span>
-                    <span className="font-mono font-bold text-indigo-700">https://montex-mis-default-rtdb.firebaseio.com/</span>
+                    <span className="font-mono font-bold text-indigo-700">https://montexforge-7d537-default-rtdb.firebaseio.com/</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Firebase Project ID:</span>
-                    <span className="font-mono font-semibold text-slate-900">montex-mis</span>
+                    <span className="font-mono font-semibold text-slate-900">montexforge-7d537</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Frontend Framework:</span>

@@ -2,7 +2,7 @@
  * Fills the LOCAL Firebase emulators with sample Montex data and one Google user per
  * role, for UI development and end-to-end checks. Refuses to run against a real project.
  *
- *   npx firebase emulators:start --only auth,firestore --project montex-mis
+ *   npx firebase emulators:start --only auth,firestore --project montexforge-7d537
  *   npm run seed:emulator
  *   VITE_FIREBASE_EMULATORS=true npm run dev
  *   (in the browser console) __montexEmulatorSignIn('ceo@montex.test')
@@ -49,7 +49,7 @@ if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_
   process.exit(1);
 }
 
-const app = initializeApp({ projectId: appletConfig.projectId || 'montex-mis' });
+const app = initializeApp({ projectId: appletConfig.projectId || 'montexforge-7d537' });
 const db = getFirestore(app, appletConfig.firestoreDatabaseId);
 const auth = getAuth(app);
 

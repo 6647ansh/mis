@@ -1521,7 +1521,7 @@ export async function runPhase2FirestoreSecurityVerification(): Promise<{
   );
   assertCheck(
     'Configured Firestore database ID matches firebase-applet-config.json',
-    firestoreDatabaseId === 'ai-studio-montexmis-80037e3b-fbab-4539-8464-b375213a9416' &&
+    firestoreDatabaseId === '(default)' &&
       FIREBASE_CONFIG_METADATA.firestoreDatabaseId === firestoreDatabaseId,
     `Got: ${firestoreDatabaseId}`
   );

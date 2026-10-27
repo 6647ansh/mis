@@ -17,7 +17,7 @@
     "migrate:order-values": "tsx scripts/split-order-commercials.ts",
     "seed:emulator": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 tsx scripts/seed-emulator.ts",
     "dev:emulator": "VITE_FIREBASE_EMULATORS=true tsx server.ts",
-    "emulators": "firebase emulators:start --only auth,firestore --project montex-mis",
+    "emulators": "firebase emulators:start --only auth,firestore --project montexforge-7d537",
     "test:rules": "firebase emulators:exec --only firestore --project montex-mis-rules-test \"tsx scripts/test-firestore-rules.ts\""
   },
   "dependencies": {
