@@ -6,7 +6,7 @@ import type { DimensionalInspectionReport, NcrCapaRecord, OrderJourney, QualityI
 import type { MontexPdfDocumentPayload } from '../../services/documentExportService';
 import { DIR_DIMENSIONS } from '../../services/firestoreMappers';
 import { DocumentPreviewModal } from '../common/DocumentPreviewModal';
-import { ClearanceQueue } from '../orders/ClearanceQueue';
+import { ClearanceQueue, isAwaitingQualityClearance } from '../orders/ClearanceQueue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageHeader, StatTile } from '@/components/ui/data-display';
@@ -62,7 +62,7 @@ export function QualityPage() {
   const report = useWriteToast();
 
   const openOrders = useMemo(() => salesOrders.filter((o) => o.status !== 'completed'), [salesOrders]);
-  const waiting = openOrders.filter((o) => !o.qualityClearedBy && ['quality_pending', 'quality_cleared', 'clearance_pending', 'clearance_approved', 'ready_for_dispatch', 'partially_dispatched'].includes(o.status)).length;
+  const waiting = openOrders.filter(isAwaitingQualityClearance).length;
   const passed = qualityInspections.reduce((s, q) => s + q.passedQty, 0);
   const rejected = qualityInspections.reduce((s, q) => s + q.rejectedQty, 0);
   const passRate = passed + rejected > 0 ? (passed / (passed + rejected)) * 100 : null;

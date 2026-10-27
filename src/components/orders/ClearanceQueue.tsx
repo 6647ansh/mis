@@ -24,7 +24,15 @@ export function qualityDiscrepancy(order: OrderJourney): number {
   }, 0);
 }
 
+// An order is at inspection once its stage says so or once any lot has been recorded
+// against it, so the queue does not depend on someone moving the stage by hand.
+const hasInspection = (o: OrderJourney) =>
+  (o.lineItems || []).some((li) => (li.inspectedOkQty || 0) + (li.rejectedQty || 0) > 0);
+
 const QUALITY_STAGES = ['quality_pending', 'quality_cleared', 'clearance_pending', 'clearance_approved', 'ready_for_dispatch', 'partially_dispatched'];
+
+export const isAwaitingQualityClearance = (o: OrderJourney) =>
+  o.status !== 'completed' && !o.qualityClearedBy && (QUALITY_STAGES.includes(o.status) || hasInspection(o));
 
 /**
  * Open orders waiting for this department's dispatch clearance. Quality sees orders that
@@ -38,7 +46,7 @@ export function ClearanceQueue({ kind }: { kind: Kind }) {
   const rows = useMemo(() => {
     const open = salesOrders.filter((o) => o.status !== 'completed');
     return kind === 'quality'
-      ? open.filter((o) => !o.qualityClearedBy && QUALITY_STAGES.includes(o.status))
+      ? open.filter(isAwaitingQualityClearance)
       : open.filter((o) => o.qualityClearedBy && !o.financeClearedBy);
   }, [salesOrders, kind]);
 
