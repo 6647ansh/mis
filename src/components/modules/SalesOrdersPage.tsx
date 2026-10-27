@@ -4,6 +4,7 @@ import { ArrowUpRight, Download, FileDown, FileSpreadsheet, Plus } from 'lucide-
 import { useRtdb } from '../../context/RtdbContext';
 import type { OrderJourney } from '../../types/mis';
 import { canRoleWriteCollection } from '../../types/roles';
+import { buildNewOrder } from '../../lib/orders';
 import { OrderClearancePanel } from '../orders/OrderClearancePanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -373,60 +374,8 @@ function NewOrderForm({ onDone }: { onDone: () => void }) {
 
     const cust = customers.find((c) => c.id === f.customerId)!;
     const prod = products.find((p) => p.id === f.productId)!;
-    const year = f.poDate.slice(0, 4);
-    // Next job number in this year's series; Firestore create refuses a duplicate id.
-    const jobSeq =
-      Math.max(
-        0,
-        ...salesOrders
-          .map((o) => o.jobNumber.match(new RegExp(`^JOB-MF-${year}-(\\d+)$`)))
-          .filter(Boolean)
-          .map((m) => Number(m![1]))
-      ) + 1;
-    const jobNumber = `JOB-MF-${year}-${String(jobSeq).padStart(4, '0')}`;
-    const id = `ORD-${year}-${Date.now().toString(36).toUpperCase()}`;
-    const total = qty * rate;
-
-    const order: OrderJourney = {
-      id,
-      poNumber: f.poNumber.trim(),
-      poDate: f.poDate,
-      jobNumber,
-      customerId: cust.id,
-      customerName: cust.name,
-      totalValue: total,
-      currency: 'INR',
-      expectedDeliveryDate: f.deliveryDate,
-      targetDeliveryDate: f.deliveryDate,
-      status: 'material_pending',
-      statusLabel: 'New order — awaiting material allocation',
-      lineItems: [
-        {
-          id: `${id}-L1`,
-          salesOrderId: id,
-          productId: prod.id,
-          productCode: prod.code,
-          productName: prod.name,
-          materialGrade: prod.materialGrade,
-          size: prod.size,
-          orderedQty: qty,
-          uom: prod.uom || 'PCS',
-          ratePerUnit: rate,
-          totalAmount: total,
-          producedQty: 0,
-          inspectedOkQty: 0,
-          rejectedQty: 0,
-          dispatchedQty: 0,
-          pendingQty: qty,
-        },
-      ],
-      // Later stages are filled by Stores, Quality, Dispatch and Finance; nothing is pre-assumed.
-      materialStatus: { state: 'shortage', materialGrade: prod.materialGrade, heatNumber: '', requiredKg: Math.round(qty * (prod.standardWeightKg || 0)), allocatedKg: 0, supplierName: '', lastUpdated: todayIso(), notes: 'Not yet allocated by Stores.' },
-      qualityStatus: { state: 'pending', inspectorName: '', inspectionDate: '', mtcNumber: '', mtcStatus: 'draft', testTypes: [] },
-      clearanceStatus: { state: 'pending', agency: '', inspectorName: '', clearanceDate: '', clearanceRefNo: '', remarks: '' },
-      dispatchStatus: { state: 'pending', totalShippedQty: 0, balanceQty: qty, transporterName: '', vehicleNo: '', lrNumber: '', dispatchDate: '', destinationCity: cust.location || '' },
-      invoiceStatus: { state: 'pending', invoiceNumber: '', invoiceDate: '', invoiceAmount: 0, paidAmount: 0, paymentDueDate: '', tallySyncStatus: 'pending_import', outstandingAmount: 0 },
-    } as OrderJourney;
+    const order = buildNewOrder({ orders: salesOrders, customer: cust, product: prod, poNumber: f.poNumber, poDate: f.poDate, deliveryDate: f.deliveryDate, qty, rate });
+    const jobNumber = order.jobNumber;
 
     setSaving(true);
     const res = await createSalesOrderRecord(order);

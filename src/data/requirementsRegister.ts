@@ -794,7 +794,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'emdAmount',
       'technicalBidStatus',
     ],
-    sourceFiles: ['src/components/modules/QuotationsView.tsx'],
+    sourceFiles: ['src/components/modules/QuotationsPage.tsx'],
     rtdbPath: '/salesOrders/$orderId (on PO conversion) + /auditLogs',
     status: 'Implemented',
     implementationNotes:

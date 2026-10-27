@@ -193,10 +193,10 @@ export function mapQuotationToFirestoreDoc(
   return {
     id: q.id,
     quoteNo: (q.rfqReference || q.id).slice(0, 64),
-    customerId: (q.customerId || 'CUST-001').slice(0, 128),
+    customerId: optionalText(q.customerId, 128),
     customerName: (q.customerName || 'Montex Customer').slice(0, 160),
     contactPerson: (q.contactPerson || 'Procurement Head').slice(0, 120),
-    productId: (q.productId || 'PROD-001').slice(0, 128),
+    productId: optionalText(q.productId, 128),
     productName: (q.productName || 'Forged Component').slice(0, 160),
     steelGrade: (q.materialGrade || 'ASTM A105').slice(0, 64),
     quantityMT,
@@ -211,8 +211,8 @@ export function mapQuotationToFirestoreDoc(
     inquiryQtyPcs: Math.max(0, q.inquiryQtyPcs || 0),
     unitWeightKg: Math.max(0, q.unitWeightKg || 0),
     quotedRatePerPc: Math.max(0, q.quotedRatePerPc || 0),
-    estimatedMarginPercent: q.estimatedMarginPercent ?? 16.5,
-    deliveryLeadWeeks: Math.max(0, q.deliveryLeadWeeks ?? 6),
+    estimatedMarginPercent: q.estimatedMarginPercent || undefined,
+    deliveryLeadWeeks: q.deliveryLeadWeeks ? Math.max(0, q.deliveryLeadWeeks) : undefined,
     isRepeatOrder: Boolean(q.isRepeatOrder),
     createdAt: q.quoteDate && q.quoteDate.length >= 4 ? q.quoteDate : nowIso,
     updatedAt: nowIso,
@@ -228,13 +228,15 @@ export function mapFirestoreDocToQuotation(doc: FirestoreQuotationDoc): Quotatio
       ? doc.unitWeightKg
       : meta.wkg
       ? Number(meta.wkg)
-      : 25;
+      : 0;
   const inquiryQtyPcs =
     doc.inquiryQtyPcs !== undefined
       ? doc.inquiryQtyPcs
       : meta.pcs
       ? Number(meta.pcs)
-      : Math.max(1, Math.round((doc.quantityMT * 1000) / Math.max(1, unitWeightKg)));
+      : unitWeightKg > 0
+      ? Math.round((doc.quantityMT * 1000) / unitWeightKg)
+      : 0;
   const quotedRatePerKg =
     doc.quotedRatePerKg ?? Number((doc.totalValueINR / Math.max(1, doc.quantityMT * 1000)).toFixed(2));
   const quotedRatePerPc =
@@ -242,7 +244,9 @@ export function mapFirestoreDocToQuotation(doc: FirestoreQuotationDoc): Quotatio
       ? doc.quotedRatePerPc
       : meta.rpp
       ? Number(meta.rpp)
-      : Math.round(doc.totalValueINR / Math.max(1, inquiryQtyPcs));
+      : inquiryQtyPcs > 0
+      ? Math.round(doc.totalValueINR / inquiryQtyPcs)
+      : 0;
   const status: QuotationRecord['status'] =
     (meta.st as QuotationRecord['status']) ||
     QUOTE_FS_TO_UI_STATUS[doc.status] ||
@@ -253,13 +257,13 @@ export function mapFirestoreDocToQuotation(doc: FirestoreQuotationDoc): Quotatio
     rfqReference: doc.quoteNo,
     quoteDate: meta.qdt || doc.createdAt.split('T')[0],
     validUntil: doc.validUntil || doc.createdAt.split('T')[0],
-    customerId: doc.customerId || meta.cid || 'CUST-001',
+    customerId: doc.customerId || meta.cid || '',
     customerName: doc.customerName,
     contactPerson,
-    productId: doc.productId || meta.pid || 'PROD-001',
+    productId: doc.productId || meta.pid || '',
     productName: doc.productName,
     materialGrade: doc.steelGrade,
-    standard: 'ASME B16.5',
+    standard: '',
     unitWeightKg,
     inquiryQtyPcs,
     quotedRatePerKg,
@@ -270,18 +274,18 @@ export function mapFirestoreDocToQuotation(doc: FirestoreQuotationDoc): Quotatio
         ? doc.estimatedMarginPercent
         : meta.mgn !== undefined
         ? Number(meta.mgn)
-        : 16.5,
+        : 0,
     deliveryLeadWeeks:
       doc.deliveryLeadWeeks !== undefined
         ? doc.deliveryLeadWeeks
         : meta.lw !== undefined
         ? Number(meta.lw)
-        : 6,
+        : 0,
     isRepeatOrder: doc.isRepeatOrder !== undefined ? doc.isRepeatOrder : meta.rep === '1',
     status,
-    nextFollowUpDate: doc.nextFollowUpDate || meta.fdt || doc.updatedAt.split('T')[0],
+    nextFollowUpDate: doc.nextFollowUpDate || meta.fdt || '',
     followUpNotes:
-      doc.followUpNotes || meta.fn || 'Logged in Cloud Firestore Quotation Register.',
+      doc.followUpNotes || meta.fn || '',
     convertedOrderId: doc.convertedOrderId || meta.ord || undefined,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
