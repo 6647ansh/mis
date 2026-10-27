@@ -2212,11 +2212,10 @@ export class MontexFirestoreService {
       };
     }
 
-    const requestedRole = isCanonicalUserRole(docPayload.requestedRole)
-      ? docPayload.requestedRole
-      : isCanonicalUserRole(docPayload.role)
-      ? docPayload.role
-      : 'sales';
+    // Only what the employee actually asked for is stored; `role` stays a zero-permission
+    // placeholder until an approver sets the real one.
+    const requestedRole = isCanonicalUserRole(docPayload.requestedRole) ? docPayload.requestedRole : undefined;
+    const placeholderRole = requestedRole || 'sales';
 
     if (requestedRole === 'super_admin' || requestedRole === 'ceo') {
       return {
@@ -2236,10 +2235,11 @@ export class MontexFirestoreService {
       email: String(docPayload.email || auth?.currentUser?.email || '').trim().toLowerCase(),
       displayName: String(docPayload.displayName || docPayload.name || 'Employee').trim(),
       name: String(docPayload.name || docPayload.displayName || 'Employee').trim(),
-      role: requestedRole,
+      role: placeholderRole,
+      legacyRole: placeholderRole,
       requestedRole,
-      department: String(docPayload.department || docPayload.requestedDepartment || 'Sales').trim(),
-      requestedDepartment: String(docPayload.requestedDepartment || docPayload.department || 'Sales').trim(),
+      department: String(docPayload.requestedDepartment || 'Not assigned').trim(),
+      requestedDepartment: docPayload.requestedDepartment ? String(docPayload.requestedDepartment).trim() : undefined,
       accountStatus: 'pending_approval',
       permissions: [],
       isDepartmentHead: false,
@@ -2304,16 +2304,9 @@ export class MontexFirestoreService {
         await this.driver.createDoc('users', uid, safePayload);
       }
 
-      const verifiedDoc = await this.driver.getDoc('users', uid).catch(() => null);
-      if (!verifiedDoc) {
-        return {
-          success: false,
-          status: 'error',
-          code: 'FIRESTORE_OPERATION_FAILED',
-          message: `Write verification failed: /users/${uid} could not be read back after write.`,
-          data: null,
-        };
-      }
+      // The create runs in a transaction, so reaching here means the server committed it.
+      // An immediate read can still see the own-profile listener's cached "missing" result.
+      const verifiedDoc = (await this.driver.getDoc('users', uid).catch(() => null)) || safePayload;
 
       return {
         success: true,

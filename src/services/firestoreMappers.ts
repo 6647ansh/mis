@@ -2058,10 +2058,11 @@ export function mapFirestoreDocToUserProfile(doc: Record<string, any>): UserProf
   const displayName = String(doc.displayName || doc.name || doc.email || 'Montex Employee');
   const resolvedRole = resolveGranularRoleFromGroupOrLegacy(
     doc.role || doc.legacyRole || 'sales',
-    doc.legacyRole
+    doc.role || doc.legacyRole
   );
-  const rbacGroup = doc.rbacGroup || getOrganizationalGroupForRole(resolvedRole);
-  const accountStatus = doc.accountStatus || 'active';
+  const rbacGroup = getOrganizationalGroupForRole(resolvedRole);
+  // A profile without a status is never treated as approved.
+  const accountStatus = doc.accountStatus || 'pending_approval';
   const isActive = accountStatus === 'active';
   const initials =
     doc.avatarInitials ||
@@ -2151,10 +2152,12 @@ export function mapUserProfileToFirestoreDoc(
   const rawEmail = String(u.email || '').trim().toLowerCase();
   const email = (rawEmail.length >= 3 ? rawEmail : `${uid || 'employee'}@montexforge.com`).slice(0, 160);
   const resolvedRole = resolveGranularRoleFromGroupOrLegacy(
-    u.legacyRole || u.role || u.requestedRole || 'sales',
-    u.legacyRole
+    // `role` is canonical; legacyRole is only a mirror and must never override it.
+    u.role || u.legacyRole || u.requestedRole || 'sales',
+    u.role || u.legacyRole
   );
-  const rbacGroup = u.rbacGroup || getOrganizationalGroupForRole(resolvedRole);
+  // Always derived from the role, so a stale group can never outlive a role change.
+  const rbacGroup = getOrganizationalGroupForRole(resolvedRole);
   const nowIso = new Date().toISOString();
   const accountStatus = u.accountStatus || 'pending_approval';
   const rawDept = String(u.department || u.requestedDepartment || 'Operations').trim();

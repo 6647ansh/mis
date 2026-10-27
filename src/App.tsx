@@ -30,7 +30,7 @@ const FinanceView = lazyNamed(() => import('./components/modules/FinanceView'), 
 const MasterDataView = lazyNamed(() => import('./components/modules/MasterDataView'), 'MasterDataView');
 const NotificationsView = lazyNamed(() => import('./components/modules/NotificationsView'), 'NotificationsView');
 const ReportsView = lazyNamed(() => import('./components/modules/ReportsView'), 'ReportsView');
-const AdminView = lazyNamed(() => import('./components/modules/AdminView'), 'AdminView');
+const AdminPage = lazyNamed(() => import('./components/modules/AdminPage'), 'AdminPage');
 const TaskAccountabilityView = lazyNamed(() => import('./components/modules/TaskAccountabilityView'), 'TaskAccountabilityView');
 
 function FullPageSpinner({ label }: { label: string }) {
@@ -222,7 +222,7 @@ function MontexWorkspace() {
                 {currentTab === 'notifications' && <NotificationsView onNavigate={handleNavigate} />}
 
                 {currentTab === 'admin' && (
-                  <AdminView currentUser={currentUser} onSelectUserRole={() => {}} />
+                  <AdminPage />
                 )}
               </Suspense>
             )}

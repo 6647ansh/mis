@@ -190,6 +190,42 @@ async function main() {
   await check('New Google user can file a pending access request', () =>
     assertSucceeds(setDoc(doc(as('new1'), 'users/new1'), profile('new1', 'sales', 'pending_approval')))
   );
+  await check('New Google user can file the full request the app sends', () => {
+    const now = '2026-10-27T00:00:00.000Z';
+    const full = mapUserProfileToFirestoreDoc({
+      id: 'new9',
+      uid: 'new9',
+      name: 'Priya Test',
+      displayName: 'Priya Test',
+      email: 'new9@example.com',
+      role: 'sales',
+      requestedRole: 'sales',
+      requestedDepartment: 'Sales & Marketing',
+      rbacGroup: 'Sales',
+      roleTitle: 'Pending Admin Approval (Requested: SALES — Sales & Marketing)',
+      designation: 'Pending Admin Approval',
+      department: 'Sales & Marketing',
+      avatarInitials: 'PT',
+      accountStatus: 'pending_approval',
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: now,
+      approvalHistory: [{ status: 'pending_approval', actorUid: 'new9', actorEmail: 'new9@example.com', actorName: 'Priya Test', timestamp: now, notes: 'x' }],
+      permissions: [],
+      isDepartmentHead: false,
+      dataOrigin: 'production',
+    } as UserProfile);
+    return assertSucceeds(setDoc(doc(as('new9'), 'users/new9'), full));
+  });
+  await check('New user can read back their own access request', () =>
+    assertSucceeds(getDoc(doc(as('new9'), 'users/new9')))
+  );
+  await check('Access request must carry the signed-in Google email', () =>
+    assertFails(setDoc(doc(as('new8'), 'users/new8'), { ...profile('new8', 'sales', 'pending_approval'), email: 'boss@example.com' }))
+  );
+  await check('Access request cannot arrive pre-approved', () =>
+    assertFails(setDoc(doc(as('new7'), 'users/new7'), { ...profile('new7', 'sales', 'pending_approval'), approvedByUid: 'someone' }))
+  );
   await check('New user cannot create themselves as active', () =>
     assertFails(setDoc(doc(as('new2'), 'users/new2'), profile('new2', 'sales', 'active')))
   );

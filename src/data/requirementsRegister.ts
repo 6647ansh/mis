@@ -1073,7 +1073,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'auditLogs',
     ],
     sourceFiles: [
-      'src/components/modules/AdminView.tsx',
+      'src/components/modules/AdminPage.tsx',
       'src/services/misDataValidator.ts',
       'database.rules.json',
     ],

@@ -814,13 +814,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: displayName,
             displayName,
             email,
+            // Placeholder only: pending accounts carry no permissions until an approver sets the role.
             role: 'sales',
-            requestedRole: 'sales',
-            requestedDepartment: 'Sales & Marketing',
             rbacGroup: 'Sales',
-            roleTitle: 'Pending Admin Approval (Requested: SALES — Sales & Marketing)',
-            designation: 'Pending Admin Approval',
-            department: 'Sales & Marketing',
+            roleTitle: 'Waiting for approval',
+            designation: 'Waiting for approval',
+            department: 'Not assigned',
             avatarInitials: initials,
             accountStatus: 'pending_approval',
             createdAt: nowIso,
@@ -848,7 +847,10 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .upsertSelfPendingAccessRequestToFirestore(
                 mapUserProfileToFirestoreDoc(autoPendingProfile)
               )
-              .catch(() => {});
+              .then((r) => {
+                if (!r.success) console.error('[access-request] not saved:', r.code, r.message);
+              })
+              .catch((err) => console.error('[access-request] not saved:', err));
           }
         }
 
@@ -2284,11 +2286,10 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : targetUser.designation && targetUser.designation.trim().length >= 2
           ? targetUser.designation.trim()
           : `${rbacGroup} (${input.role})`;
-    const safeRequestedRole: UserRole = isCanonicalUserRole(targetUser.requestedRole)
+    // Keep only what the employee actually asked for; never back-fill it from the placeholder role.
+    const safeRequestedRole: UserRole | undefined = isCanonicalUserRole(targetUser.requestedRole)
       ? targetUser.requestedRole
-      : isCanonicalUserRole(targetUser.role)
-        ? targetUser.role
-        : input.role;
+      : undefined;
     const cleanCreatedAt =
       targetUser.createdAt && String(targetUser.createdAt).trim().length >= 4
         ? String(targetUser.createdAt).trim()
@@ -2320,8 +2321,9 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       displayName: cleanDisplayName,
       email: String(targetUser.email || '').trim().toLowerCase(),
       role: input.role,
+      legacyRole: input.role,
       requestedRole: safeRequestedRole,
-      requestedDepartment: targetUser.requestedDepartment || cleanDept,
+      requestedDepartment: targetUser.requestedDepartment,
       rbacGroup,
       department: cleanDept,
       designation: cleanDesignation,

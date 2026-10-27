@@ -169,11 +169,50 @@ service cloud.firestore {
         (d.get('approvalHistory', []) is list && d.get('approvalHistory', []).size() <= 50);
     }
 
+    // A new Google user's own access request. Narrower than isValidUserProfile (no approval,
+    // rejection or admin fields at all), so it stays well inside the 1000-expression budget.
+    function isValidSelfAccessRequest(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'department', 'accountStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().toSet().difference([
+          'id', 'uid', 'name', 'email', 'displayName', 'role', 'requestedRole', 'requestedDepartment',
+          'legacyRole', 'rbacGroup', 'roleTitle', 'department', 'designation', 'avatarInitials',
+          'accountStatus', 'status', 'mustChangePassword', 'approvalHistory', 'permissions',
+          'isDepartmentHead', 'createdAt', 'updatedAt', 'lastLogin', 'lastLoginAt', 'dataOrigin'
+        ].toSet()).size() == 0 &&
+        data.uid == userId &&
+        data.get('id', userId) == userId &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.email == request.auth.token.email.lower() &&
+        data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 120 &&
+        data.get('name', 'ok') is string && data.get('name', 'ok').size() <= 120 &&
+        data.role in ['sales', 'stores', 'purchase', 'quality', 'dispatch', 'finance'] &&
+        data.get('requestedRole', 'sales') in ['sales', 'stores', 'purchase', 'quality', 'dispatch', 'finance'] &&
+        data.get('legacyRole', 'sales') in ['sales', 'stores', 'purchase', 'quality', 'dispatch', 'finance'] &&
+        data.get('rbacGroup', 'Sales') in ['Sales', 'Production', 'Finance'] &&
+        data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+        data.get('requestedDepartment', '') is string && data.get('requestedDepartment', '').size() <= 80 &&
+        data.get('roleTitle', '') is string && data.get('roleTitle', '').size() <= 100 &&
+        data.get('designation', '') is string && data.get('designation', '').size() <= 100 &&
+        data.get('avatarInitials', '') is string && data.get('avatarInitials', '').size() <= 8 &&
+        data.accountStatus == 'pending_approval' &&
+        data.get('status', 'Pending') == 'Pending' &&
+        data.get('mustChangePassword', false) == false &&
+        data.get('isDepartmentHead', false) == false &&
+        data.get('permissions', []) is list && data.get('permissions', []).size() == 0 &&
+        data.get('approvalHistory', []) is list && data.get('approvalHistory', []).size() <= 5 &&
+        data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+        data.updatedAt is string && data.updatedAt.size() >= 4 && data.updatedAt.size() <= 40 &&
+        data.get('lastLoginAt', '') is string && data.get('lastLoginAt', '').size() <= 40 &&
+        data.get('lastLogin', '') is string && data.get('lastLogin', '').size() <= 40 &&
+        data.get('dataOrigin', 'production') == 'production';
+    }
+
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll([
         'uid', 'email', 'displayName', 'role', 'department', 'accountStatus', 'createdAt', 'updatedAt'
       ]) &&
-      data.keys().hasOnly([
+      // Set difference is hashed; list hasOnly() costs keys x allowed and broke the 1000 limit.
+      data.keys().toSet().difference([
         'id', 'uid', 'name', 'email', 'displayName', 'role', 'requestedRole', 'requestedDepartment',
         'legacyRole', 'rbacGroup', 'roleTitle', 'department', 'designation', 'avatarInitials', 'accountStatus', 'status',
         'mustChangePassword', 'invitedBy', 'provisionedBy', 'provisionedAt',
@@ -182,14 +221,14 @@ service cloud.firestore {
         'permissions', 'isDepartmentHead', 'managedDepartment', 'reportingManagerUid',
         'createdAt', 'updatedAt', 'lastLogin', 'lastLoginAt',
         'disabledAt', 'deactivatedBy', 'deactivationReason', 'dataOrigin'
-      ]) &&
+      ].toSet()).size() == 0 &&
       data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128 &&
       (!('id' in data) || (data.id is string && data.id == userId && data.id.size() >= 1 && data.id.size() <= 128)) &&
       data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
       data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 120 &&
       (!('name' in data) || (data.name is string && data.name.size() >= 2 && data.name.size() <= 120)) &&
       isValidRoleValue(data.role) &&
-      (!('requestedRole' in data) || isValidRoleValue(data.requestedRole)) &&
+      (!('requestedRole' in data) || data.requestedRole in ['sales', 'stores', 'purchase', 'quality', 'dispatch', 'finance', 'ceo', 'super_admin']) &&
       (!('requestedDepartment' in data) || (data.requestedDepartment is string && data.requestedDepartment.size() <= 80)) &&
       (!('legacyRole' in data) || (
         isValidRoleValue(data.legacyRole) &&
@@ -1220,27 +1259,12 @@ service cloud.firestore {
       allow list: if isActiveUser() && (isSuperAdmin() || isCeo());
       // Own-profile requests are checked first so they never pay for the admin checks
       // (evaluating every branch exceeded Firestore's 1000-expression limit).
-      allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming(), userId) && (
+      allow create: if isSignedIn() && isValidId(userId) && (
         (isOwner(userId) && (
-        (isOwner(userId) && isBootstrapOwner() && !userProfileExists()) ||
-        (
-          isOwner(userId) &&
-          incoming().accountStatus == 'pending_approval' &&
-          incoming().role != 'super_admin' &&
-          incoming().role != 'ceo' &&
-          (!('legacyRole' in incoming()) || (incoming().legacyRole != 'super_admin' && incoming().legacyRole != 'ceo')) &&
-          (!('requestedRole' in incoming()) || (incoming().requestedRole != 'super_admin' && incoming().requestedRole != 'ceo')) &&
-          (!('rbacGroup' in incoming()) || (incoming().rbacGroup != 'Admin' && incoming().rbacGroup != 'Management')) &&
-          (!('isDepartmentHead' in incoming()) || incoming().isDepartmentHead == false) &&
-          (!('approvedByUid' in incoming()) || incoming().approvedByUid == null) &&
-          (!('approvedByEmail' in incoming()) || incoming().approvedByEmail == null) &&
-          (!('approvedByName' in incoming()) || incoming().approvedByName == null) &&
-          (!('approvedAt' in incoming()) || incoming().approvedAt == null) &&
-          (!('rejectedByUid' in incoming()) || incoming().rejectedByUid == null) &&
-          (!('rejectedAt' in incoming()) || incoming().rejectedAt == null)
-        )
+          isValidSelfAccessRequest(incoming(), userId) ||
+          (isBootstrapOwner() && !userProfileExists() && isValidUserProfile(incoming(), userId))
         )) ||
-        (!isOwner(userId) && (
+        (!isOwner(userId) && isValidUserProfile(incoming(), userId) && (
           (isBootstrapOwner() && adminCreatesUser()) ||
           (userProfileExists() && staffCreatesUser(currentUserDoc()))
         ))
