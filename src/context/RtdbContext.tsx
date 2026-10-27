@@ -54,7 +54,6 @@ import {
   ROLE_PERMISSION_DEFAULTS,
   isCanonicalUserRole,
 } from '../types/mis';
-import { INITIAL_ROLE_DUTY_MANUALS } from '../data/requirementsRegister';
 import {
   mapGranularRoleToRbacGroup as mapRoleToRbacGroup,
   resolveUserRoleMapping,
@@ -523,7 +522,17 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useState<PreRfqLeadRecord[]>([]);
   const [ppcSchedules, setPpcSchedules] =
     useState<PpcScheduleEntry[]>([]);
-  const [roleDutyManuals] = useState<RoleDutySopChecklist[]>(INITIAL_ROLE_DUTY_MANUALS);
+  const [roleDutyManuals, setRoleDutyManuals] = useState<RoleDutySopChecklist[]>([]);
+  // Static SOP reference text (~60 KB); loaded after first paint so it stays out of the entry chunk.
+  useEffect(() => {
+    let alive = true;
+    import('../data/requirementsRegister').then((m) => {
+      if (alive) setRoleDutyManuals(m.INITIAL_ROLE_DUTY_MANUALS);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const activeRbacGroup: RbacRoleGroup =
     currentUser.rbacGroup || mapRoleToRbacGroup(currentUser.role);
