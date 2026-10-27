@@ -198,6 +198,13 @@ async function startServer() {
   // One HTTP server for the app and Vite's live-reload socket, so no second port can clash.
   const httpServer = http.createServer(app);
 
+  // The port opens a moment before the pages are ready; ask the browser to retry meanwhile.
+  let pagesReady = false;
+  app.use((req, res, next) => {
+    if (pagesReady || req.path.startsWith('/api')) return next();
+    res.status(503).set('Retry-After', '1').send('<meta http-equiv="refresh" content="1">Montex MIS is starting…');
+  });
+
   // Claim the port before Vite starts. A second copy of the app would otherwise share
   // Vite's cache with the first and the two would keep reloading the browser.
   await new Promise<void>((resolve, reject) => {
@@ -233,6 +240,7 @@ async function startServer() {
     });
   }
 
+  pagesReady = true;
   console.log(
     `[Montex MIS Server] Listening on http://localhost:${port} (project=${SERVER_PROJECT_ID})`
   );
