@@ -7,7 +7,8 @@
  *   VITE_FIREBASE_EMULATORS=true npm run dev
  *   (in the browser console) __montexEmulatorSignIn('ceo@montex.test')
  *
- * Every record is marked dataOrigin 'demo_sandbox'.
+ * Records are marked dataOrigin 'production' so the app's normal write paths work
+ * against the emulator; this script refuses to run anywhere but the emulators.
  */
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -106,13 +107,14 @@ async function main() {
         updatedAt: nowIso,
         permissions: ROLE_PERMISSION_DEFAULTS[person.role],
       } as UserProfile,
-      'demo_sandbox'
+      'production'
     );
     await db.collection('users').doc(uid).set(profile);
   }
   console.log(`  users                  ${PEOPLE.length} (sign in as <role>@montex.test, e.g. superadmin@montex.test)`);
 
-  const demo = 'demo_sandbox' as const;
+  // Local emulator only: marked 'production' so the app's normal write paths can be exercised.
+  const demo = 'production' as const;
   await put('customers', MOCK_CUSTOMERS, (r) => M.mapCustomerToFirestoreDoc(r, demo));
   await put('products', MOCK_PRODUCTS, (r) => M.mapProductToFirestoreDoc(r, demo));
   await put('salesOrders', MOCK_ORDER_JOURNEYS, (r) => M.mapSalesOrderToFirestoreDoc(r, demo));

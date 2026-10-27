@@ -14,7 +14,7 @@ export interface Column<T> {
   align?: 'left' | 'right' | 'center';
   className?: string;
   /** Hide below this breakpoint to keep small screens readable. */
-  hideBelow?: 'sm' | 'md' | 'lg';
+  hideBelow?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 interface DataTableProps<T> {
@@ -33,7 +33,7 @@ interface DataTableProps<T> {
   className?: string;
 }
 
-const hideClass = { sm: 'hidden sm:table-cell', md: 'hidden md:table-cell', lg: 'hidden lg:table-cell' };
+const hideClass = { sm: 'hidden sm:table-cell', md: 'hidden md:table-cell', lg: 'hidden lg:table-cell', xl: 'hidden xl:table-cell' };
 
 export function DataTable<T>({
   rows,
