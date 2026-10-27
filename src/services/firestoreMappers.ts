@@ -1083,9 +1083,9 @@ export function mapSalesOrderToFirestoreDoc(
 
   return {
     orderId: o.id,
-    customerId: (o.customerId || 'CUST-001').slice(0, 128),
+    customerId: o.customerId ? o.customerId.slice(0, 128) : undefined,
     customerName: (o.customerName || 'Montex Customer').slice(0, 160),
-    productId: (li?.productId || 'PROD-001').slice(0, 128),
+    productId: li?.productId ? li.productId.slice(0, 128) : undefined,
     productName: (li?.productName || 'Forged Component').slice(0, 160),
     steelGrade: (li?.materialGrade || o.materialStatus?.materialGrade || 'ASTM A105').slice(0, 64),
     quantityMT,
@@ -1153,8 +1153,8 @@ export function mapSalesOrderToFirestoreDoc(
 
 export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJourney {
   const stageMeta = (doc.stages?.[0] || {}) as Record<string, any>;
-  const orderedQty =
-    stageMeta.lineItem?.orderedQty || Math.max(1, Math.round((doc.quantityMT * 1000) / 28));
+  // Legacy docs without a stored line item: piece count is unknown, never estimated from tonnage.
+  const orderedQty: number = stageMeta.lineItem?.orderedQty || 0;
   const ratePerUnit =
     stageMeta.lineItem?.ratePerUnit ?? (doc.totalValueINR ? Math.round(doc.totalValueINR / Math.max(1, orderedQty)) : 0);
 
@@ -1178,7 +1178,7 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
     poNumber: stageMeta.poNumber || `PO-${doc.orderId}`,
     poDate: doc.orderDate,
     jobNumber: stageMeta.jobNumber || `JOB-MF-${doc.orderId}`,
-    customerId: doc.customerId || 'CUST-001',
+    customerId: doc.customerId || '',
     customerName: doc.customerName,
     // Filled from /orderCommercials for roles allowed to see order value.
     totalValue: doc.totalValueINR ?? 0,
@@ -1205,11 +1205,11 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
           {
             id: `LI-${doc.orderId}`,
             salesOrderId: doc.orderId,
-            productId: doc.productId || 'PROD-001',
-            productCode: 'FG-FLG-001',
+            productId: doc.productId || '',
+            productCode: '',
             productName: doc.productName,
             materialGrade: doc.steelGrade,
-            size: 'Standard',
+            size: '',
             orderedQty,
             uom: 'PCS',
             ratePerUnit,
@@ -1227,40 +1227,39 @@ export function mapFirestoreDocToSalesOrder(doc: FirestoreSalesOrderDoc): OrderJ
       heatNumber: doc.heatNo || '',
       requiredKg: Math.round(doc.quantityMT * 1000),
       allocatedKg: Math.round(doc.quantityMT * 1000),
-      supplierName: 'Approved Mill',
+      supplierName: '',
       lastUpdated: doc.updatedAt.split('T')[0],
-      notes: 'Synced from Cloud Firestore.',
     },
     qualityStatus: stageMeta.qualityStatus || {
       state: doc.mtcStatus === 'Verified' ? 'cleared' : 'pending',
-      inspectorName: 'QC Desk',
-      inspectionDate: doc.updatedAt.split('T')[0],
-      mtcNumber: '-',
+      inspectorName: '',
+      inspectionDate: '',
+      mtcNumber: '',
       mtcStatus: doc.mtcStatus === 'Verified' ? 'verified' : 'draft',
-      testTypes: ['Chemical Analysis', 'Ultrasonic Test (UT)'],
+      testTypes: [],
     },
     clearanceStatus: stageMeta.clearanceStatus || {
       state: 'pending',
-      agency: 'Customer / TPI Review',
-      inspectorName: 'TPI Inspector',
-      clearanceDate: '-',
-      clearanceRefNo: '-',
-      remarks: 'Synced from Cloud Firestore.',
+      agency: '',
+      inspectorName: '',
+      clearanceDate: '',
+      clearanceRefNo: '',
+      remarks: '',
     },
     dispatchStatus: stageMeta.dispatchStatus || {
       state: doc.dispatchStatus === 'Delivered' ? 'completed' : 'pending',
       totalShippedQty: 0,
       balanceQty: orderedQty,
-      transporterName: '-',
-      vehicleNo: '-',
-      lrNumber: '-',
-      dispatchDate: '-',
-      destinationCity: 'Customer Works',
+      transporterName: '',
+      vehicleNo: '',
+      lrNumber: '',
+      dispatchDate: '',
+      destinationCity: '',
     },
     invoiceStatus: stageMeta.invoiceStatus || {
       state: doc.paymentStatus === 'Paid' ? 'settled' : 'pending',
-      invoiceNumber: doc.invoiceNo || '-',
-      invoiceDate: '-',
+      invoiceNumber: doc.invoiceNo || '',
+      invoiceDate: '',
       invoiceAmount: doc.totalValueINR,
       paidAmount: 0,
       paymentDueDate: doc.committedDeliveryDate,

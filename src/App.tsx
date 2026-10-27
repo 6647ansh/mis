@@ -17,7 +17,7 @@ const lazyNamed = <K extends string>(
 ) => lazy(() => loader().then((m) => ({ default: m[name] })));
 
 const CommandCenter = lazyNamed(() => import('./components/dashboard/CommandCenter'), 'CommandCenter');
-const OrderDetailJourney = lazyNamed(() => import('./components/orders/OrderDetailJourney'), 'OrderDetailJourney');
+const OrderTrackerPage = lazyNamed(() => import('./components/orders/OrderTrackerPage'), 'OrderTrackerPage');
 const BlueprintView = lazyNamed(() => import('./components/blueprint/BlueprintView'), 'BlueprintView');
 const QuotationsView = lazyNamed(() => import('./components/modules/QuotationsView'), 'QuotationsView');
 const SalesOrdersPage = lazyNamed(() => import('./components/modules/SalesOrdersPage'), 'SalesOrdersPage');
@@ -185,7 +185,7 @@ function MontexWorkspace() {
                 {currentTab === 'dashboard' && <CommandCenter onNavigate={handleNavigate} />}
 
                 {currentTab === 'order_journey' && (
-                  <OrderDetailJourney
+                  <OrderTrackerPage
                     initialOrderId={selectedOrderId}
                     onNavigateToModule={handleNavigate}
                   />

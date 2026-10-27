@@ -732,7 +732,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
     ],
     sourceFiles: [
       'src/components/modules/SalesOrdersView.tsx',
-      'src/components/orders/OrderDetailJourney.tsx',
+      'src/components/orders/OrderTrackerPage.tsx',
       'src/services/rtdbService.ts',
     ],
     rtdbPath: '/salesOrders/$orderId',
@@ -908,7 +908,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
     ],
     sourceFiles: [
       'src/components/modules/QualityView.tsx',
-      'src/components/orders/OrderDetailJourney.tsx',
+      'src/components/orders/OrderTrackerPage.tsx',
     ],
     rtdbPath: '/quality/inspections/$inspectionId',
     status: 'Implemented',
