@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
@@ -194,10 +195,32 @@ async function startServer() {
   const port = Number(process.env.PORT) || 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
+  // One HTTP server for the app and Vite's live-reload socket, so no second port can clash.
+  const httpServer = http.createServer(app);
+
+  // Claim the port before Vite starts. A second copy of the app would otherwise share
+  // Vite's cache with the first and the two would keep reloading the browser.
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `\n[Montex MIS Server] Port ${port} is already in use: the app is probably already running ` +
+            `in another terminal. Open http://localhost:${port}, or stop the other copy (Ctrl + C) and try again.\n`
+        );
+        process.exit(1);
+      }
+      reject(err);
+    });
+    httpServer.listen(port, '0.0.0.0', () => resolve());
+  });
+
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -210,11 +233,9 @@ async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(
-      `[Montex MIS Server] Listening on http://0.0.0.0:${port} (project=${SERVER_PROJECT_ID})`
-    );
-  });
+  console.log(
+    `[Montex MIS Server] Listening on http://localhost:${port} (project=${SERVER_PROJECT_ID})`
+  );
 }
 
 // Only start the HTTP listener when server.ts is executed directly

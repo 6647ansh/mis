@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
@@ -8,7 +9,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.dirname(fileURLToPath(import.meta.url)),
       },
     },
     build: {
@@ -25,6 +26,11 @@ export default defineConfig(() => {
           },
         },
       },
+    },
+    // Pre-bundle every dependency the screens use at start-up. Otherwise Vite finds new
+    // ones as each screen is first opened and reloads the whole page each time.
+    optimizeDeps: {
+      entries: ['index.html', 'src/**/*.{ts,tsx}'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
