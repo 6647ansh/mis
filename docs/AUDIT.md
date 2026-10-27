@@ -82,12 +82,34 @@ in the blueprint (section 6), and the decisions taken with the project owner.
 3. ✅ **Rules** — quality invariant (passed + rejected ≤ inspected) in rules;
    `/users` rules brought under the expression limit; `npm run test:rules` runs
    24 cases on the real Firestore emulator. Per-role read scopes wait on S5.
-4. **Design system and cover page** — navy + bronze tokens, shared components,
-   ⌘K command palette, premium Google sign-in page with the official logo.
-5. **Live data and performance** — per-module `onSnapshot`, lazy-loaded modules
-   and export libraries, before/after measurements.
-6. **Module UI** — role-relevant content and actionable alerts (what happened /
-   why it matters / what next / where to fix).
+4. ✅ **Design system and cover page** — navy + bronze tokens, shared components,
+   ⌘K command palette, Google sign-in page with the official logo.
+5. ✅ **Live data and performance** — one live listener per readable collection;
+   vendor chunks split; entry chunk ~1.25 MB → ~290 KB; module chunks 9–26 KB.
+6. ✅ **Module UI** — all 16 screens rebuilt on the design system (header, KPI
+   tiles, tabs, searchable tables, validated dialogs, toasts); checked at 1440 px
+   and 390 px for every role.
+
+## 6. Write paths that were silently failing (fixed)
+
+Found while rebuilding the screens; each was refused by the rules or wrote the
+wrong value, so the user saw success (or nothing) while nothing was saved:
+
+| Area | Problem | Fix |
+|---|---|---|
+| Access requests | New Google user's request exceeded the 1000-expression limit | Narrow self-request validator |
+| Approvals | Approving as Quality stored the role as Sales (stale `legacyRole` won) | `role` is canonical; group derived |
+| Audit log | Non-admin writes failed (read-first transaction) | Plain create; rules keep it append-only |
+| Purchase requisitions | Status written as `approved`, rules accept `Approved` | Two-way status/priority mapping |
+| GRN by Stores | Full PO rewrite touched fields Stores may not change | Receipt-only patch + audit entry |
+| Tasks | Lowercase status/priority, numeric escalation | Two-way mapping |
+| Handovers | `createdAt` not allowed; job no., pcs, MT, heat invented on read | Rules + mapper fixed |
+| Payment follow-ups | Invoice numbers with `/` refused; amounts invented on read | Free-text invoice id; no invented values |
+| NCR | `verified_closed` refused; root cause/actions/cost invented | Status mapping; required fields enforced |
+| Orders | Produced / passed quantities never updated | Shop-floor OK pcs and QC lots add to the order in a transaction |
+
+Mappers across all modules no longer invent names, ids, rates, weights, dates or
+placeholder text; missing required facts are refused with a plain message.
 
 ## 5. Questions still open for Montex (blueprint section 9)
 
