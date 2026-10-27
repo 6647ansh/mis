@@ -1503,7 +1503,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setCustomers((prev) =>
-        isNew ? [saved, ...prev] : prev.map((c) => (c.id === saved.id ? saved : c))
+        prev.some((c) => c.id === saved.id) ? prev.map((c) => (c.id === saved.id ? saved : c)) : [saved, ...prev]
       );
       return res;
     }
@@ -1521,7 +1521,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setProducts((prev) =>
-        isNew ? [saved, ...prev] : prev.map((p) => (p.id === saved.id ? saved : p))
+        prev.some((p) => p.id === saved.id) ? prev.map((p) => (p.id === saved.id ? saved : p)) : [saved, ...prev]
       );
       return res;
     }
@@ -1635,7 +1635,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setTasks((prev) =>
-        isNew ? [saved, ...prev] : prev.map((t) => (t.id === saved.id ? saved : t))
+        prev.some((t) => t.id === saved.id) ? prev.map((t) => (t.id === saved.id ? saved : t)) : [saved, ...prev]
       );
     }
     return res;
@@ -1880,7 +1880,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setNcrCapaRecords((prev) =>
-        isNew ? [saved, ...prev] : prev.map((n) => (n.id === saved.id ? saved : n))
+        prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]
       );
     }
     return res;
@@ -1899,7 +1899,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       const saved = res.data;
       setPaymentFollowUps((prev) =>
-        isNew ? [saved, ...prev] : prev.map((f) => (f.id === saved.id ? saved : f))
+        prev.some((f) => f.id === saved.id) ? prev.map((f) => (f.id === saved.id ? saved : f)) : [saved, ...prev]
       );
     }
     return res;

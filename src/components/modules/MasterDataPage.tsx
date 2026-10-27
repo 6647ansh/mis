@@ -244,14 +244,20 @@ export function MasterDataPage({ initialType }: { initialType: Kind }) {
   );
 }
 
-function Shell({ title, error, saving, onCancel, onSubmit, children }: { title: string; error: string; saving: boolean; onCancel: () => void; onSubmit: () => void; children: React.ReactNode }) {
+function Shell({ title, error, saving, onCancel, onSubmit, children }: { title: string; error: string; saving: boolean; onCancel: () => void; onSubmit: () => void | Promise<void>; children: React.ReactNode }) {
+  // A second click or Enter before the first save finishes must not create a second record.
+  const inFlight = React.useRef(false);
   return (
     <form
       className="space-y-4"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        if (saving || inFlight.current) return;
+        inFlight.current = true;
+        Promise.resolve(onSubmit()).finally(() => {
+          inFlight.current = false;
+        });
       }}
     >
       <DialogHeader>
