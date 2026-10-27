@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  setDoc,
   getDocs,
   limit as firestoreLimit,
   orderBy as firestoreOrderBy,
@@ -1769,6 +1770,12 @@ export class FirebaseWebSdkFirestoreDriver implements FirestorePersistenceDriver
     data: T
   ): Promise<void> {
     const cleanData = stripUndefinedDeep(data);
+    if (collectionName === 'auditLogs') {
+      // Most roles may write but not read audit logs, so the read-first transaction below
+      // would fail for them. Rules deny update, so a set on an existing id is refused anyway.
+      await setDoc(doc(this.dbInstance, collectionName, docId), cleanData);
+      return;
+    }
     // Use a transaction to guarantee create-only semantics (never silently overwrite existing docs!)
     await runTransaction(this.dbInstance, async (tx) => {
       const docRef = doc(this.dbInstance, collectionName, docId);

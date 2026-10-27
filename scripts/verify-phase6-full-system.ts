@@ -431,7 +431,14 @@ async function main() {
     ceoUser,
     false
   );
-  const ncrRes = await engine.upsertNcrCapaRecord(INITIAL_NCR_CAPA_RECORDS[0], true, ceoUser, false);
+  // A real NCR always states the affected tonnage and who raised it.
+  const ncrFixture = {
+    ...INITIAL_NCR_CAPA_RECORDS[0],
+    affectedQtyMT: INITIAL_NCR_CAPA_RECORDS[0].affectedQtyMT ?? 0.5,
+    raisedByUid: INITIAL_NCR_CAPA_RECORDS[0].raisedByUid || 'uid_quality',
+    raisedByName: INITIAL_NCR_CAPA_RECORDS[0].raisedByName || 'QC Engineer',
+  };
+  const ncrRes = await engine.upsertNcrCapaRecord(ncrFixture, true, ceoUser, false);
   const pfRes = await engine.upsertPaymentFollowUpRecord(
     INITIAL_PAYMENT_FOLLOW_UPS[0],
     true,
@@ -445,7 +452,7 @@ async function main() {
   const rtPr = mapFirestoreDocToPurchaseRequisition(
     mapPurchaseRequisitionToFirestoreDoc(INITIAL_PURCHASE_REQUISITIONS[0])
   );
-  const rtNcr = mapFirestoreDocToNcrCapa(mapNcrCapaToFirestoreDoc(INITIAL_NCR_CAPA_RECORDS[0]));
+  const rtNcr = mapFirestoreDocToNcrCapa(mapNcrCapaToFirestoreDoc(ncrFixture));
   const rtPf = mapFirestoreDocToPaymentFollowUp(
     mapPaymentFollowUpToFirestoreDoc(INITIAL_PAYMENT_FOLLOW_UPS[0])
   );

@@ -1290,7 +1290,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const createMachineLogRecord = async (log: ShopMachineLog) => {
-    const res = await cutoverEngine.createMachineLog(log, currentUser, isDemoMode);
+    const order = salesOrders.find((o) => o.jobNumber === log.jobNumber);
+    const res = await cutoverEngine.createMachineLog(log, currentUser, isDemoMode, order?.id);
     if (res.success && res.data) {
       const saved = res.data;
       setMachineLogs((prev) =>
@@ -1402,10 +1403,12 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const recordQualityInspectionRecord = async (inspection: QualityInspectionRecord) => {
+    const order = salesOrders.find((o) => o.jobNumber === inspection.jobNumber);
     const res = await cutoverEngine.recordQualityInspection(
       inspection,
       currentUser,
-      isDemoMode
+      isDemoMode,
+      order?.id
     );
     if (res.success && res.data) {
       const saved = res.data;

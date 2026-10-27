@@ -1,4 +1,9 @@
-import { collection as firestoreCollection, onSnapshot as onFirestoreSnapshot } from 'firebase/firestore';
+import {
+  collection as firestoreCollection,
+  doc as firestoreDoc,
+  onSnapshot as onFirestoreSnapshot,
+  runTransaction,
+} from 'firebase/firestore';
 import {
   auth,
   firestore,
@@ -1347,7 +1352,8 @@ export class MontexCutoverEngine {
   async createMachineLog(
     log: ShopMachineLog,
     user: UserProfile,
-    isDemoMode = false
+    isDemoMode = false,
+    orderId?: string
   ): Promise<CutoverWriteResult<ShopMachineLog>> {
     const authCheck = this.verifyRoleWrite(
       user,
@@ -1413,11 +1419,20 @@ export class MontexCutoverEngine {
           error: res.message,
         };
       }
+      // Produced = total OK pieces logged against the job (owner decision).
+      const warning =
+        log.okPcs > 0
+          ? await this.addToOrderLine(orderId, log.jobNumber, user, (o) => ({
+              ...o,
+              lineItems: o.lineItems.map((li, i) => (i === 0 ? { ...li, producedQty: (li.producedQty || 0) + log.okPcs } : li)),
+            }))
+          : undefined;
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: warning ? 'PARTIAL_WRITE' : 'OK',
+        warning,
         data: mapFirestoreDocToMachineLog(res.data),
       };
     } finally {
@@ -1718,7 +1733,18 @@ export class MontexCutoverEngine {
         };
       }
 
-      const docPayload = mapDimensionalReportToFirestoreDoc(dir, 'production');
+      let docPayload: ReturnType<typeof mapDimensionalReportToFirestoreDoc>;
+      try {
+        docPayload = mapDimensionalReportToFirestoreDoc(dir, 'production');
+      } catch (err: any) {
+        return {
+          success: false,
+          persistedToFirestore: false,
+          persistedToRtdb: false,
+          code: 'VALIDATION_FAILED',
+          error: err?.message || 'The report is missing required details.',
+        };
+      }
       const res = await this.fs.createDocument('dimensionalReports', dir.id, docPayload, {
         auditAction: 'DIMENSIONAL_REPORT_CREATED',
         auditDetails: `Issued Dimensional Inspection Report ${dir.id} for ${dir.jobNumber} (${dir.drawingNo})`,
@@ -2053,7 +2079,8 @@ export class MontexCutoverEngine {
   async recordQualityInspection(
     inspection: QualityInspectionRecord,
     user: UserProfile,
-    isDemoMode = false
+    isDemoMode = false,
+    orderId?: string
   ): Promise<CutoverWriteResult<QualityInspectionRecord>> {
     const authCheck = this.verifyRoleWrite(
       user,
@@ -2132,11 +2159,31 @@ export class MontexCutoverEngine {
           error: res.message,
         };
       }
+      const warning = await this.addToOrderLine(orderId, inspection.jobNumber, user, (o) => ({
+        ...o,
+        lineItems: o.lineItems.map((li, i) =>
+          i === 0
+            ? {
+                ...li,
+                inspectedOkQty: (li.inspectedOkQty || 0) + inspection.passedQty,
+                rejectedQty: (li.rejectedQty || 0) + inspection.rejectedQty,
+              }
+            : li
+        ),
+        qualityStatus: {
+          ...o.qualityStatus,
+          state: o.qualityStatus?.state === 'cleared' ? 'cleared' : 'in_progress',
+          inspectorName: inspection.inspector,
+          inspectionDate: inspection.date,
+          mtcNumber: inspection.mtcNumber || o.qualityStatus?.mtcNumber || '',
+        },
+      }));
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
-        code: 'OK',
+        code: warning ? 'PARTIAL_WRITE' : 'OK',
+        warning,
         data: mapFirestoreDocToQualityInspection(res.data),
       };
     } finally {
@@ -2288,6 +2335,37 @@ export class MontexCutoverEngine {
    * Rules limit quality clearance to Quality/CEO/Super Admin and finance clearance to
    * Finance/CEO/Super Admin, and require the clearance to name the caller.
    */
+  /**
+   * Adds shop-floor or QC quantities to an order's line item. Runs in a transaction on the
+   * stored order, so two supervisors logging at once never overwrite each other's counts.
+   * Returns a warning (never throws) when the order could not be updated.
+   */
+  private async addToOrderLine(
+    orderId: string | undefined,
+    jobNumber: string,
+    user: UserProfile,
+    change: (order: OrderJourney) => OrderJourney
+  ): Promise<string | undefined> {
+    const failed = `The entry is saved, but order ${jobNumber} was not updated. Refresh and check its quantities.`;
+    if (!orderId || !firestore) return `The entry is saved, but no order with job ${jobNumber} was found to update.`;
+    const fields = ORDER_FIELDS_BY_ROLE[user.role];
+    try {
+      await runTransaction(firestore, async (tx) => {
+        const ref = firestoreDoc(firestore!, 'salesOrders', orderId);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('missing');
+        const updated = change(mapFirestoreDocToSalesOrder({ ...(snap.data() as any), orderId }));
+        const doc = mapSalesOrderToFirestoreDoc(updated, 'production') as Record<string, any>;
+        const keys = fields || ['currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt'];
+        const patch = Object.fromEntries(keys.filter((k) => doc[k] !== undefined).map((k) => [k, doc[k]]));
+        tx.update(ref, patch);
+      });
+      return undefined;
+    } catch {
+      return failed;
+    }
+  }
+
   /** Writes an updated order the way the caller's role is allowed to: full or field patch. */
   private async writeOrderForRole(order: OrderJourney, user: UserProfile) {
     const doc = mapSalesOrderToFirestoreDoc(order, 'production') as Record<string, any>;
@@ -3164,7 +3242,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapNcrCapaToFirestoreDoc(ncr, 'production');
+    let docPayload: ReturnType<typeof mapNcrCapaToFirestoreDoc>;
+    try {
+      docPayload = mapNcrCapaToFirestoreDoc(ncr, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The NCR is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('ncrCapaRecords', ncr.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'NCR_RAISED' : 'NCR_UPDATED',

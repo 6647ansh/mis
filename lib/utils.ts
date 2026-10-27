@@ -33,3 +33,11 @@ export function formatDate(value?: string | null) {
     ? value
     : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/** Collision-safe record id, e.g. QC-2026-MH3K9Z4F2A. Time-ordered, never a guessed sequence. */
+export function newRecordId(prefix: string) {
+  const rand = Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
+  return `${prefix}-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}${rand}`;
+}
+
+export const todayIso = () => new Date().toISOString().slice(0, 10);

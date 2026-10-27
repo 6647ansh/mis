@@ -852,31 +852,24 @@ export function mapFirestoreDocToPowerLog(doc: FirestorePowerLogDoc): PowerConsu
 // 8. REGISTER #8: DIMENSIONAL INSPECTION REPORTS (/dimensionalReports/{reportId})
 // ============================================================================
 
+/** Dimension names as stored: one observed value each for OD, bore and height. */
+export const DIR_DIMENSIONS = ['Outer diameter (OD)', 'Bore (ID)', 'Height / thickness'] as const;
+
+const mm = (v?: string) => {
+  const n = Number(String(v ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
 export function mapDimensionalReportToFirestoreDoc(
   dir: DimensionalInspectionReport,
   dataOrigin: DataRecordOrigin = 'production'
 ): FirestoreDimensionalReportDoc {
   const nowIso = new Date().toISOString();
-  const odParam = dir.parameters?.[0];
-  const idParam = dir.parameters?.[1];
-  const pcdParam = dir.parameters?.[2];
-
-  const outerDiaNominalMm = parseNumericMm(odParam?.nominalMm, 400);
-  const outerDiaObservedMm = parseNumericMm(
-    odParam?.measuredMaxMm || odParam?.measuredMinMm,
-    outerDiaNominalMm
-  );
-  const innerDiaNominalMm = parseNumericMm(idParam?.nominalMm, 200);
-  const innerDiaObservedMm = parseNumericMm(
-    idParam?.measuredMaxMm || idParam?.measuredMinMm,
-    innerDiaNominalMm
-  );
-  const heightNominalMm = parseNumericMm(pcdParam?.nominalMm, 250);
-  const heightObservedMm = parseNumericMm(
-    pcdParam?.measuredMaxMm || pcdParam?.measuredMinMm,
-    heightNominalMm
-  );
-  const deviationMm = Number((outerDiaObservedMm - outerDiaNominalMm).toFixed(2));
+  const [od, bore, height] = dir.parameters || [];
+  const odNominal = mm(od?.nominalMm);
+  const odObserved = mm(od?.measuredMaxMm || od?.measuredMinMm);
+  if (!dir.jobNumber) throw new RecordValidationError('Choose the job this report belongs to.');
+  if (!odNominal || !odObserved) throw new RecordValidationError('Enter the nominal and measured outer diameter.');
 
   const toleranceResult: FirestoreDimensionalReportDoc['toleranceResult'] =
     dir.offeringStatus === 'rework_advised'
@@ -886,12 +879,12 @@ export function mapDimensionalReportToFirestoreDoc(
       : 'Within Tolerance';
 
   const inspectorName = packMeta(
-    dir.inspectorName || 'QC Inspector',
+    dir.inspectorName,
     {
-      tpi: dir.tpiAgency,
+      tpi: dir.tpiAgency || undefined,
       st: dir.offeringStatus,
       ss: dir.sampleSizePcs,
-      po: dir.orderNo,
+      po: dir.orderNo || undefined,
       cn: dir.customerName ? dir.customerName.slice(0, 20) : undefined,
       pn: dir.productName ? dir.productName.slice(0, 20) : undefined,
     },
@@ -901,16 +894,16 @@ export function mapDimensionalReportToFirestoreDoc(
   return {
     id: dir.id,
     reportNo: dir.id.slice(0, 64),
-    orderId: (dir.jobNumber || 'JOB-MF-2026-0412').slice(0, 128),
-    batchId: (dir.orderNo || 'BATCH-01').slice(0, 80),
-    drawingNo: (dir.drawingNo || 'DRG-MF-STD').slice(0, 80),
-    outerDiaNominalMm,
-    outerDiaObservedMm,
-    innerDiaNominalMm,
-    innerDiaObservedMm,
-    heightNominalMm,
-    heightObservedMm,
-    deviationMm,
+    orderId: dir.jobNumber.slice(0, 128),
+    batchId: optionalText(dir.orderNo, 80),
+    drawingNo: optionalText(dir.drawingNo, 80),
+    outerDiaNominalMm: odNominal,
+    outerDiaObservedMm: odObserved,
+    innerDiaNominalMm: mm(bore?.nominalMm),
+    innerDiaObservedMm: mm(bore?.measuredMaxMm || bore?.measuredMinMm),
+    heightNominalMm: mm(height?.nominalMm),
+    heightObservedMm: mm(height?.measuredMaxMm || height?.measuredMinMm),
+    deviationMm: Number((odObserved - odNominal).toFixed(2)),
     toleranceResult,
     inspectorName,
     inspectedAt: dir.inspectionDate && dir.inspectionDate.length >= 4 ? dir.inspectionDate : nowIso,
@@ -922,7 +915,7 @@ export function mapDimensionalReportToFirestoreDoc(
 export function mapFirestoreDocToDimensionalReport(
   doc: FirestoreDimensionalReportDoc
 ): DimensionalInspectionReport {
-  const { primary: inspectorName, meta } = unpackMeta(doc.inspectorName, 'QC Inspector');
+  const { primary: inspectorName, meta } = unpackMeta(doc.inspectorName, '');
   const offeringStatus: DimensionalInspectionReport['offeringStatus'] =
     (meta.st as DimensionalInspectionReport['offeringStatus']) ||
     (doc.toleranceResult === 'Out of Tolerance'
@@ -930,50 +923,36 @@ export function mapFirestoreDocToDimensionalReport(
       : doc.toleranceResult === 'Minor Deviation'
       ? 'offered_to_tpi'
       : 'witnessed_cleared');
-
-  const paramResult: 'OK' | 'DEVIATION' =
-    doc.toleranceResult === 'Out of Tolerance' ? 'DEVIATION' : 'OK';
+  const result: 'OK' | 'DEVIATION' = doc.toleranceResult === 'Within Tolerance' ? 'OK' : 'DEVIATION';
+  const rows: [string, number | undefined, number | undefined][] = [
+    [DIR_DIMENSIONS[0], doc.outerDiaNominalMm, doc.outerDiaObservedMm],
+    [DIR_DIMENSIONS[1], doc.innerDiaNominalMm, doc.innerDiaObservedMm],
+    [DIR_DIMENSIONS[2], doc.heightNominalMm, doc.heightObservedMm],
+  ];
 
   return {
     id: doc.id,
     jobNumber: doc.orderId,
-    orderNo: meta.po || doc.batchId || 'PO-REF',
-    customerName: meta.cn || 'Montex Customer',
-    drawingNo: doc.drawingNo || 'DRG-MF-STD',
-    productName: meta.pn || 'Forged Component',
-    sampleSizePcs: meta.ss ? Number(meta.ss) : 5,
+    orderNo: meta.po || doc.batchId || '',
+    customerName: meta.cn || '',
+    drawingNo: doc.drawingNo || '',
+    productName: meta.pn || '',
+    sampleSizePcs: meta.ss ? Number(meta.ss) : 0,
     inspectorName,
-    tpiAgency: meta.tpi || 'Internal QC',
+    tpiAgency: meta.tpi || '',
     inspectionDate: doc.inspectedAt.split('T')[0],
-    parameters: [
-      {
-        dimensionName: 'Outer Diameter (OD)',
-        nominalMm: String(doc.outerDiaNominalMm),
-        toleranceMm: '±1.5',
-        measuredMinMm: String(doc.outerDiaObservedMm),
-        measuredMaxMm: String(doc.outerDiaObservedMm),
-        instrumentUsed: 'Digital Vernier 600mm',
-        result: paramResult,
-      },
-      {
-        dimensionName: 'Inside Bore (ID)',
-        nominalMm: String(doc.innerDiaNominalMm ?? 200),
-        toleranceMm: '±0.8',
-        measuredMinMm: String(doc.innerDiaObservedMm ?? 200),
-        measuredMaxMm: String(doc.innerDiaObservedMm ?? 200),
-        instrumentUsed: 'Bore Gauge Dial',
-        result: paramResult,
-      },
-      {
-        dimensionName: 'Pitch Circle Dia (PCD)',
-        nominalMm: String(doc.heightNominalMm ?? 250),
-        toleranceMm: '±0.5',
-        measuredMinMm: String(doc.heightObservedMm ?? 250),
-        measuredMaxMm: String(doc.heightObservedMm ?? 250),
-        instrumentUsed: 'CMM Coordinate Probe',
-        result: paramResult,
-      },
-    ],
+    // Tolerance and instrument are not stored, so they are left blank rather than invented.
+    parameters: rows
+      .filter(([, nominal, observed]) => nominal || observed)
+      .map(([dimensionName, nominal, observed]) => ({
+        dimensionName,
+        nominalMm: nominal ? String(nominal) : '',
+        toleranceMm: '',
+        measuredMinMm: observed ? String(observed) : '',
+        measuredMaxMm: observed ? String(observed) : '',
+        instrumentUsed: '',
+        result,
+      })),
     offeringStatus,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
@@ -2517,35 +2496,55 @@ export function mapFirestoreDocToPurchaseRequisition(
   };
 }
 
+const NCR_STATUS_TO_FS: Record<string, FirestoreNcrCapaDoc['status']> = {
+  open: 'Open',
+  root_cause_identified: 'Root Cause Analysis',
+  capa_in_progress: 'Root Cause Analysis',
+  capa_implemented: 'CAPA Implemented',
+  verified_closed: 'Verified & Closed',
+};
+const NCR_DISPOSITION_TO_FS: Record<string, FirestoreNcrCapaDoc['disposition']> = {
+  rework_forging: 'Rework',
+  re_heat_treat: 'Rework',
+  scrap_and_reforge: 'Scrap',
+  concession_tpi: 'Use As Is (Concession)',
+};
+
 export function mapNcrCapaToFirestoreDoc(
   ncr: NcrCapaRecord,
   dataOrigin: DataRecordOrigin = 'production'
 ): FirestoreNcrCapaDoc {
   const nowIso = new Date().toISOString();
+  const orderId = ncr.orderId || ncr.jobNumber;
+  const batchId = ncr.batchId || ncr.inspectionId || ncr.heatNumber;
+  const affected = ncr.affectedQtyMT;
+  // Required facts are never invented: the form must supply them.
+  if (!orderId) throw new RecordValidationError('Choose the order this NCR belongs to.');
+  if (!batchId) throw new RecordValidationError('Enter the lot, batch or heat number.');
+  if (!ncr.defectDescription || ncr.defectDescription.trim().length < 3) throw new RecordValidationError('Describe the defect.');
+  if (!(typeof affected === 'number' && affected > 0)) throw new RecordValidationError('Enter the affected quantity in MT.');
+  if (!ncr.raisedByUid || !ncr.raisedByName) throw new RecordValidationError('The NCR must name who raised it.');
+  const rootCause = ncr.rootCause || ncr.rootCause5Why || ncr.rootCauseAnalysis;
   return {
     id: ncr.id,
     ncrNumber: (ncr.ncrNumber || ncr.id).slice(0, 64),
-    orderId: (ncr.orderId || ncr.jobNumber || 'ORD-2026-001').slice(0, 128),
-    batchId: (ncr.batchId || ncr.heatNumber || 'BATCH-01').slice(0, 80),
-    productName: ncr.productName ? ncr.productName.slice(0, 160) : undefined,
-    steelGrade: (ncr.steelGrade || ncr.materialGrade)
-      ? (ncr.steelGrade || ncr.materialGrade)!.slice(0, 64)
-      : undefined,
-    heatNo: (ncr.heatNo || ncr.heatNumber) ? (ncr.heatNo || ncr.heatNumber)!.slice(0, 64) : undefined,
-    defectCategory: (ncr.defectCategory || 'Dimensional') as any,
-    defectDescription: (ncr.defectDescription || 'Deviation observed').slice(0, 600),
-    affectedQtyMT: Math.max(0.01, ncr.affectedQtyMT ?? 0.5),
-    rootCause: (ncr.rootCause || ncr.rootCause5Why || ncr.rootCauseAnalysis)
-      ? (ncr.rootCause || ncr.rootCause5Why || ncr.rootCauseAnalysis)!.slice(0, 600)
-      : undefined,
-    correctiveAction: ncr.correctiveAction ? ncr.correctiveAction.slice(0, 600) : undefined,
-    preventiveAction: ncr.preventiveAction ? ncr.preventiveAction.slice(0, 600) : undefined,
-    disposition: (ncr.disposition || 'Hold') as any,
-    status: (ncr.status || 'Open') as any,
-    raisedByUid: (ncr.raisedByUid || 'uid_quality').slice(0, 128),
-    raisedByName: (ncr.raisedByName || 'QC Engineer').slice(0, 160),
-    verifiedByName: ncr.verifiedByName ? ncr.verifiedByName.slice(0, 160) : undefined,
-    closedAt: ncr.closedAt ? ncr.closedAt.slice(0, 40) : undefined,
+    orderId: orderId.slice(0, 128),
+    batchId: batchId.slice(0, 80),
+    productName: optionalText(ncr.productName, 160),
+    steelGrade: optionalText(ncr.steelGrade || ncr.materialGrade, 64),
+    heatNo: optionalText(ncr.heatNo || ncr.heatNumber, 64),
+    defectCategory: ncr.defectCategory as any,
+    defectDescription: ncr.defectDescription.trim().slice(0, 600),
+    affectedQtyMT: affected,
+    rootCause: optionalText(rootCause, 600),
+    correctiveAction: optionalText(ncr.correctiveAction, 600),
+    preventiveAction: optionalText(ncr.preventiveAction, 600),
+    disposition: (NCR_DISPOSITION_TO_FS[ncr.disposition || ''] || ncr.disposition || 'Hold') as any,
+    status: (NCR_STATUS_TO_FS[ncr.status] || ncr.status || 'Open') as any,
+    raisedByUid: ncr.raisedByUid.slice(0, 128),
+    raisedByName: ncr.raisedByName.slice(0, 160),
+    verifiedByName: optionalText(ncr.verifiedByName, 160),
+    closedAt: optionalText(ncr.closedAt, 40),
     createdAt: ncr.createdAt && ncr.createdAt.length >= 4 ? ncr.createdAt : nowIso,
     updatedAt: nowIso,
     dataOrigin,
@@ -2557,19 +2556,18 @@ export function mapFirestoreDocToNcrCapa(doc: FirestoreNcrCapaDoc): NcrCapaRecor
     ...doc,
     dateRaised: doc.createdAt.split('T')[0],
     jobNumber: doc.orderId,
-    customerName: 'Montex Customer',
-    productName: doc.productName || 'Forged Component',
-    materialGrade: doc.steelGrade || 'ASTM A105',
-    heatNumber: doc.heatNo || doc.batchId,
-    rejectedQtyPcs: Math.max(1, Math.round((doc.affectedQtyMT ?? 0.5) * 20)),
-    containmentAction: doc.disposition || 'Quarantined in QC Hold Bay',
-    rootCause5Why: doc.rootCause || 'Root cause analysis logged',
-    rootCauseAnalysis: doc.rootCause || 'Root cause analysis logged',
-    correctiveAction: doc.correctiveAction || 'Die & process parameter recalibration',
-    preventiveAction: doc.preventiveAction || 'Added to shift patrol checklist',
+    customerName: '',
+    productName: doc.productName || '',
+    materialGrade: doc.steelGrade,
+    heatNumber: doc.heatNo || '',
+    rejectedQtyPcs: 0,
+    rootCause5Why: doc.rootCause,
+    rootCauseAnalysis: doc.rootCause || '',
+    correctiveAction: doc.correctiveAction || '',
+    preventiveAction: doc.preventiveAction || '',
     responsibleOwnerName: doc.raisedByName,
-    targetClosureDate: doc.closedAt || doc.updatedAt.split('T')[0],
-    costOfPoorQualityInr: Math.round((doc.affectedQtyMT ?? 0.5) * 75000),
+    targetClosureDate: doc.closedAt,
+    costOfPoorQualityInr: 0,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

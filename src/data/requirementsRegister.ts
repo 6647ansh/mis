@@ -907,7 +907,7 @@ export const CLIENT_REQUIREMENTS_REGISTER: ClientRequirementEntry[] = [
       'offeringStatus',
     ],
     sourceFiles: [
-      'src/components/modules/QualityView.tsx',
+      'src/components/modules/QualityPage.tsx',
       'src/components/orders/OrderTrackerPage.tsx',
     ],
     rtdbPath: '/quality/inspections/$inspectionId',
