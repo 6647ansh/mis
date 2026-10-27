@@ -3206,7 +3206,18 @@ export class MontexCutoverEngine {
       };
     }
 
-    const docPayload = mapPurchaseRequisitionToFirestoreDoc(pr, 'production');
+    let docPayload: ReturnType<typeof mapPurchaseRequisitionToFirestoreDoc>;
+    try {
+      docPayload = mapPurchaseRequisitionToFirestoreDoc(pr, 'production');
+    } catch (err: any) {
+      return {
+        success: false,
+        persistedToFirestore: false,
+        persistedToRtdb: false,
+        code: 'VALIDATION_FAILED',
+        error: err?.message || 'The requisition is missing required details.',
+      };
+    }
     const res = await this.fs.setDocument('purchaseRequisitions', pr.id, docPayload, {
       merge: false,
       auditAction: isNew ? 'PR_CREATED' : 'PR_UPDATED',

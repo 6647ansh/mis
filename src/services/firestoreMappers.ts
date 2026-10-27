@@ -448,20 +448,20 @@ export function mapFirestoreDocToPurchaseOrder(
     id: doc.id,
     poNumber: doc.poNumber,
     poDate: doc.orderDate || doc.createdAt.split('T')[0],
-    supplierId: doc.supplierId || 'SUP-001',
+    supplierId: doc.supplierId || '',
     supplierName: doc.supplierName,
-    materialId: meta.mid || 'RM-001',
-    materialCode: meta.mcd || 'RM-BIL-A105-200',
+    materialId: meta.mid || '',
+    materialCode: meta.mcd || '',
     materialGrade: doc.steelGrade,
-    sectionMm: meta.sec || '200mm RCS Billet',
-    linkedJobNumber: meta.job || 'STOCK-REPLENISHMENT',
+    sectionMm: meta.sec || '',
+    linkedJobNumber: meta.job || '',
     orderedMt,
     receivedMt,
     pendingMt,
     ratePerMt: doc.ratePerMT,
     totalValue: doc.totalAmountINR,
     expectedDeliveryDate: doc.expectedDeliveryDate,
-    millHeatNumber: meta.ht || 'AWAITING-MILL-MTC',
+    millHeatNumber: meta.ht || '',
     status:
       (meta.st as PurchaseOrderRecord['status']) ||
       PO_FS_TO_UI_STATUS[doc.status] ||
@@ -1884,13 +1884,13 @@ export function mapFirestoreDocToSupplier(doc: FirestoreSupplierDoc): SteelMillS
     name: doc.name,
     location,
     approvedGrades: doc.primaryGrades || ['ASTM A105'],
-    certification: meta.cert || 'ISO 9001 / IBR Approved',
+    certification: meta.cert || '',
     leadTimeDays: doc.leadTimeDays,
-    creditTermsDays: meta.ct !== undefined ? Number(meta.ct) : 45,
+    creditTermsDays: meta.ct !== undefined ? Number(meta.ct) : 0,
     qualityRatingPercent:
-      meta.qr !== undefined ? Number(meta.qr) : Math.round((doc.qualityRating ?? 4.8) * 20),
-    contactPerson: meta.cp || 'Mill Dispatch Desk',
-    phone: meta.ph || '+91-22-00000000',
+      meta.qr !== undefined ? Number(meta.qr) : doc.qualityRating !== undefined ? Math.round(doc.qualityRating * 20) : 0,
+    contactPerson: meta.cp || '',
+    phone: meta.ph || '',
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }
@@ -2426,37 +2426,58 @@ export function mapFirestoreDocToHandover(doc: FirestoreHandoverDoc): HandoverRe
   };
 }
 
+const PR_STATUS_TO_FS: Record<string, FirestorePurchaseRequisitionDoc['status']> = {
+  pending_approval: 'Pending Approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  converted_to_po: 'Converted to PO',
+  po_issued: 'Converted to PO',
+};
+const PR_STATUS_FROM_FS: Record<string, PurchaseRequisitionRecord['status']> = {
+  Draft: 'pending_approval',
+  'Pending Approval': 'pending_approval',
+  Approved: 'approved',
+  Rejected: 'rejected',
+  'Converted to PO': 'converted_to_po',
+};
+const PR_PRIORITY_BY_URGENCY: Record<string, FirestorePurchaseRequisitionDoc['priority']> = {
+  critical: 'Urgent',
+  urgent: 'Urgent',
+  high: 'High',
+  standard: 'Normal',
+};
+
 export function mapPurchaseRequisitionToFirestoreDoc(
   pr: PurchaseRequisitionRecord,
   dataOrigin: DataRecordOrigin = 'production'
 ): FirestorePurchaseRequisitionDoc {
   const nowIso = new Date().toISOString();
+  const grade = pr.steelGrade || pr.materialGrade;
+  const mt = pr.requiredMT ?? pr.requiredMt ?? pr.requiredQtyMt;
+  if (!grade) throw new RecordValidationError('Choose the steel grade needed.');
+  if (!(typeof mt === 'number' && mt > 0)) throw new RecordValidationError('Enter the quantity needed in MT.');
+  if (!pr.requestedByUid || !pr.requestedByName) throw new RecordValidationError('The requisition must name who raised it.');
+  const priority = (['Urgent', 'High', 'Normal'].includes(pr.priority as string) ? pr.priority : PR_PRIORITY_BY_URGENCY[pr.urgency]) || 'Normal';
   return {
     id: pr.id,
     prNumber: (pr.prNumber || pr.id).slice(0, 64),
-    orderId: (pr.orderId || pr.linkedJobNumber)
-      ? (pr.orderId || pr.linkedJobNumber)!.slice(0, 128)
-      : undefined,
-    steelGrade: (pr.steelGrade || pr.materialGrade || 'ASTM A105').slice(0, 64),
-    requiredMT: Math.max(0.01, pr.requiredMT ?? pr.requiredMt ?? pr.requiredQtyMt ?? 1),
+    orderId: optionalText(pr.orderId || pr.linkedJobNumber, 128),
+    steelGrade: grade.slice(0, 64),
+    requiredMT: mt,
     estimatedCostINR:
-      (pr.estimatedCostINR ?? pr.estimatedTotalInr) !== undefined
-        ? Math.max(0, (pr.estimatedCostINR ?? pr.estimatedTotalInr)!)
-        : undefined,
+      (pr.estimatedCostINR ?? pr.estimatedTotalInr) ? Math.max(0, (pr.estimatedCostINR ?? pr.estimatedTotalInr)!) : undefined,
     requiredByDate: (pr.requiredByDate || nowIso.split('T')[0]).slice(0, 40),
-    requestedByUid: (pr.requestedByUid || 'uid_stores').slice(0, 128),
-    requestedByName: (pr.requestedByName || 'Stores Officer').slice(0, 160),
+    requestedByUid: pr.requestedByUid.slice(0, 128),
+    requestedByName: pr.requestedByName.slice(0, 160),
     requestedByRole: pr.requestedByRole as any,
-    justification: pr.justification ? pr.justification.slice(0, 600) : undefined,
-    priority: (pr.priority || 'Normal') as any,
-    status: (pr.status || 'Pending Approval') as any,
-    approvedByUid: pr.approvedByUid ? pr.approvedByUid.slice(0, 128) : undefined,
-    approvedByName: pr.approvedByName ? pr.approvedByName.slice(0, 160) : undefined,
-    approvedAt: pr.approvedAt ? pr.approvedAt.slice(0, 40) : undefined,
-    rejectionReason: pr.rejectionReason ? pr.rejectionReason.slice(0, 600) : undefined,
-    convertedPoNumber: (pr.convertedPoNumber || pr.convertedPoId)
-      ? (pr.convertedPoNumber || pr.convertedPoId)!.slice(0, 64)
-      : undefined,
+    justification: optionalText(pr.justification, 600),
+    priority: priority as any,
+    status: (PR_STATUS_TO_FS[pr.status as string] || pr.status || 'Pending Approval') as any,
+    approvedByUid: optionalText(pr.approvedByUid, 128),
+    approvedByName: optionalText(pr.approvedByName, 160),
+    approvedAt: optionalText(pr.approvedAt, 40),
+    rejectionReason: optionalText(pr.rejectionReason, 600),
+    convertedPoNumber: optionalText(pr.convertedPoNumber || pr.convertedPoId, 64),
     createdAt: pr.createdAt && pr.createdAt.length >= 4 ? pr.createdAt : nowIso,
     updatedAt: nowIso,
     dataOrigin,
@@ -2466,25 +2487,23 @@ export function mapPurchaseRequisitionToFirestoreDoc(
 export function mapFirestoreDocToPurchaseRequisition(
   doc: FirestorePurchaseRequisitionDoc
 ): PurchaseRequisitionRecord {
-  const reqMt = doc.requiredMT ?? 1;
-  const estTotal = doc.estimatedCostINR ?? Math.round(reqMt * 68000);
+  const reqMt = doc.requiredMT ?? 0;
+  const estTotal = doc.estimatedCostINR ?? 0;
   return {
     ...doc,
+    status: PR_STATUS_FROM_FS[doc.status] || (doc.status as PurchaseRequisitionRecord['status']),
     requestDate: doc.createdAt.split('T')[0],
-    materialId: 'RM-001',
-    materialCode: `RM-${doc.steelGrade}`,
     materialGrade: doc.steelGrade,
-    sectionMm: '160mm Dia',
+    sectionMm: '',
     requiredQtyMt: reqMt,
     requiredMt: reqMt,
-    estimatedRatePerMt: Math.round(estTotal / Math.max(0.1, reqMt)),
+    estimatedRatePerMt: estTotal && reqMt ? Math.round(estTotal / reqMt) : 0,
     estimatedTotalInr: estTotal,
-    linkedJobNumber: doc.orderId || 'JOB-MF-2026-0412',
-    urgency: 'high',
-    justification: doc.justification || 'Material stock replenishment',
-    suggestedSupplierId: 'SUP-001',
-    suggestedSupplierName: 'JSW Steel Ltd',
+    linkedJobNumber: doc.orderId || '',
+    urgency: doc.priority === 'Urgent' ? 'urgent' : doc.priority === 'High' ? 'high' : 'standard',
+    justification: doc.justification || '',
     convertedPoId: doc.convertedPoNumber,
+    convertedPoNumber: doc.convertedPoNumber,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
 }

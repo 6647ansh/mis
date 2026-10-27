@@ -401,6 +401,10 @@ interface RtdbContextType {
     approved: boolean,
     remarks?: string
   ) => Promise<CutoverWriteResult<PurchaseRequisitionRecord>>;
+  markPurchaseRequisitionConverted: (
+    pr: PurchaseRequisitionRecord,
+    poNumber: string
+  ) => Promise<CutoverWriteResult<PurchaseRequisitionRecord>>;
   upsertNcrCapaRecord: (
     ncr: NcrCapaRecord,
     isNew?: boolean
@@ -1799,7 +1803,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       approvedByUid: currentUser.id,
       approvedByName: currentUser.name,
       approvedAt: nowIso,
-      justification: remarks ? `${pr.justification} | Approval Note: ${remarks}` : pr.justification,
+      rejectionReason: approved ? pr.rejectionReason : remarks || pr.rejectionReason,
+      justification: approved && remarks ? `${pr.justification} | Approval note: ${remarks}` : pr.justification,
     };
 
     const res = await cutoverEngine.upsertPurchaseRequisitionRecord(
@@ -1813,6 +1818,21 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPurchaseRequisitions((prev) =>
         prev.map((p) => (p.id === saved.id ? saved : p))
       );
+    }
+    return res;
+  };
+
+  /** Links an approved requisition to the PO raised from it so it cannot be converted twice. */
+  const markPurchaseRequisitionConverted = async (pr: PurchaseRequisitionRecord, poNumber: string) => {
+    const res = await cutoverEngine.upsertPurchaseRequisitionRecord(
+      { ...pr, status: 'converted_to_po', convertedPoNumber: poNumber, convertedPoId: poNumber },
+      false,
+      currentUser,
+      isDemoMode
+    );
+    if (res.success && res.data) {
+      const saved = res.data;
+      setPurchaseRequisitions((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
     }
     return res;
   };
@@ -2824,6 +2844,7 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createPurchaseRequisitionRecord,
         approvePurchaseRequisitionRecord,
         upsertNcrCapaRecord,
+        markPurchaseRequisitionConverted,
         upsertPaymentFollowUpRecord,
         updateMonthlySalesTargetRecord,
         runSlaAutomationScanRecord,
