@@ -9,5 +9,5 @@
   "measurementId": "G-M9W4J7KBTY",
   "oAuthClientId": "",
   "recaptchaSiteKey": "",
-  "adminApiUrl": ""
+  "adminApiUrl": "https://montex-mis-api.onrender.com"
 }
