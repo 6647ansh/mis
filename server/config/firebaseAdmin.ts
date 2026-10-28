@@ -328,147 +328,37 @@ export function createLiveAdminAuthAdapter(): AdminAuthAdapter {
  */
 export function createLiveEmployeeStoreAdapter(): EmployeeStoreAdapter {
   const firestore = getAdminFirestoreInstance();
-  const rtdb = getAdminRtdbInstance();
+
+  // Firestore is the only store. (The old Realtime Database mirror is gone: on a project
+  // without that database its writes never settle, which left admin requests hanging.)
+  const toProfile = (data: any, fallbackId: string): UserProfile =>
+    ({
+      ...data,
+      id: data.id || data.uid || fallbackId,
+      uid: data.uid || data.id || fallbackId,
+      name: data.name || data.displayName || '',
+      displayName: data.displayName || data.name || '',
+      role: data.legacyRole || data.role,
+    }) as UserProfile;
 
   return {
     async getEmployeeProfile(uid: string): Promise<UserProfile | null> {
-      let firestoreErr: unknown = null;
-      try {
-        const docSnap = await firestore.collection('users').doc(uid).get();
-        if (docSnap.exists) {
-          const data = docSnap.data() as any;
-          return {
-            ...data,
-            id: data.id || data.uid || uid,
-            uid: data.uid || data.id || uid,
-            name: data.name || data.displayName || '',
-            displayName: data.displayName || data.name || '',
-            role: data.legacyRole || data.role,
-          } as UserProfile;
-        }
-      } catch (err) {
-        firestoreErr = err;
-      }
-
-      try {
-        const rtdbSnap = await rtdb.ref(`users/${uid}`).get();
-        if (rtdbSnap.exists()) {
-          const val = rtdbSnap.val();
-          return {
-            ...val,
-            id: val.id || val.uid || uid,
-            uid: val.uid || val.id || uid,
-            name: val.name || val.displayName || '',
-            displayName: val.displayName || val.name || '',
-            role: val.legacyRole || val.role,
-          } as UserProfile;
-        }
-      } catch (rtdbErr) {
-        if (firestoreErr) {
-          throw firestoreErr;
-        }
-        throw rtdbErr;
-      }
-
-      if (firestoreErr) {
-        const msg = firestoreErr instanceof Error ? firestoreErr.message : String(firestoreErr);
-        if (
-          msg.includes('Could not load the default credentials') ||
-          msg.includes('UNAUTHENTICATED') ||
-          msg.includes('PERMISSION_DENIED') ||
-          msg.includes('invalid-credential')
-        ) {
-          throw firestoreErr;
-        }
-      }
-      return null;
+      const docSnap = await firestore.collection('users').doc(uid).get();
+      return docSnap.exists ? toProfile(docSnap.data(), uid) : null;
     },
 
     async getEmployeeProfileByEmail(email: string): Promise<UserProfile | null> {
-      const normalizedEmail = email.trim().toLowerCase();
-      let firestoreErr: unknown = null;
-      try {
-        const snap = await firestore
-          .collection('users')
-          .where('email', '==', normalizedEmail)
-          .limit(1)
-          .get();
-        if (!snap.empty) {
-          const data = snap.docs[0].data() as any;
-          return {
-            ...data,
-            id: data.id || data.uid || snap.docs[0].id,
-            uid: data.uid || data.id || snap.docs[0].id,
-            name: data.name || data.displayName || '',
-            displayName: data.displayName || data.name || '',
-            role: data.legacyRole || data.role,
-          } as UserProfile;
-        }
-      } catch (err) {
-        firestoreErr = err;
-      }
-
-      try {
-        const rtdbSnap = await rtdb.ref('users').get();
-        if (rtdbSnap.exists()) {
-          const all = Object.values(rtdbSnap.val() as Record<string, any>);
-          const match = all.find(
-            (u) => String(u?.email || '').trim().toLowerCase() === normalizedEmail
-          );
-          if (match) {
-            return {
-              ...match,
-              id: match.id || match.uid,
-              uid: match.uid || match.id,
-              role: match.legacyRole || match.role,
-            } as UserProfile;
-          }
-        }
-      } catch (rtdbErr) {
-        if (firestoreErr) {
-          throw firestoreErr;
-        }
-        throw rtdbErr;
-      }
-      return null;
+      const snap = await firestore
+        .collection('users')
+        .where('email', '==', email.trim().toLowerCase())
+        .limit(1)
+        .get();
+      return snap.empty ? null : toProfile(snap.docs[0].data(), snap.docs[0].id);
     },
 
     async listEmployeeProfiles(): Promise<UserProfile[]> {
-      let firestoreErr: unknown = null;
-      try {
-        const snap = await firestore.collection('users').get();
-        if (!snap.empty) {
-          return snap.docs.map((d) => {
-            const data = d.data() as any;
-            return {
-              ...data,
-              id: data.id || data.uid || d.id,
-              uid: data.uid || data.id || d.id,
-              name: data.name || data.displayName || '',
-              displayName: data.displayName || data.name || '',
-              role: data.legacyRole || data.role,
-            } as UserProfile;
-          });
-        }
-      } catch (err) {
-        firestoreErr = err;
-      }
-
-      try {
-        const rtdbSnap = await rtdb.ref('users').get();
-        if (!rtdbSnap.exists()) return [];
-        return Object.values(rtdbSnap.val() as Record<string, any>).map((val) => ({
-          ...val,
-          id: val.id || val.uid,
-          uid: val.uid || val.id,
-          name: val.name || val.displayName || '',
-          displayName: val.displayName || val.name || '',
-          role: val.legacyRole || val.role,
-        })) as UserProfile[];
-      } catch (rtdbErr) {
-        if (firestoreErr) throw firestoreErr;
-        throw rtdbErr;
-      }
+      const snap = await firestore.collection('users').get();
+      return snap.docs.map((d) => toProfile(d.data(), d.id));
     },
 
     async saveEmployeeProfile(profile: UserProfile): Promise<void> {
@@ -516,17 +406,6 @@ export function createLiveEmployeeStoreAdapter(): EmployeeStoreAdapter {
 
       // Primary write to authoritative Firestore `/users/{uid}`
       await firestore.collection('users').doc(uid).set(firestorePayload, { merge: true });
-
-      // Non-blocking mirror to RTDB `/users/{uid}` so Phase 3 RTDB UI remains synchronized
-      try {
-        await rtdb.ref(`users/${uid}`).set({
-          ...firestorePayload,
-          role: profile.rbacGroup,
-          legacyRole: profile.role,
-        });
-      } catch {
-        // Non-blocking mirror
-      }
     },
 
     async countActiveSuperAdmins(): Promise<number> {
@@ -541,11 +420,6 @@ export function createLiveEmployeeStoreAdapter(): EmployeeStoreAdapter {
     async appendAuditLog(entry: AuditLogEntry): Promise<void> {
       const safeEntry = redactSensitiveData(entry);
       await firestore.collection('auditLogs').doc(safeEntry.id).create(safeEntry);
-      try {
-        await rtdb.ref(`auditLogs/${safeEntry.id}`).set(safeEntry);
-      } catch {
-        // Non-blocking mirror to RTDB
-      }
     },
 
     async listAuditLogs(limit = 100): Promise<AuditLogEntry[]> {
