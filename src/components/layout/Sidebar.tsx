@@ -30,6 +30,15 @@ function useAttentionCounts(): Record<string, number> {
   };
 }
 
+// Credit for the people who built the system.
+const credit = (
+  <p className="px-3 pb-3 pt-1 text-[11px] leading-snug text-slate-500">
+    Built by <span className="font-medium text-slate-300">Ansh Yadav</span>
+    <br />
+    <span className="font-semibold tracking-wide text-bronze-400">BLOOM COSMOS</span>
+  </p>
+);
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onNavigate,
@@ -139,6 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         )}
+        {!isCollapsed && credit}
       </aside>
 
       {/* Mobile drawer */}
@@ -156,6 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <X className="size-4" />
             </button>
             {renderNav(false)}
+            {credit}
           </aside>
         </div>
       )}

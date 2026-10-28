@@ -151,6 +151,10 @@ export function SignInPage() {
           <p className="mt-6 text-center text-xs text-slate-500">
             © {new Date().getFullYear()} Montex Forge Industries
           </p>
+          <p className="mt-1 text-center text-xs text-slate-400">
+            Designed &amp; developed by <span className="font-semibold text-slate-200">Ansh Yadav</span> ·{' '}
+            <span className="font-semibold tracking-wide text-bronze-400">BLOOM COSMOS</span>
+          </p>
         </section>
       </div>
     </div>
