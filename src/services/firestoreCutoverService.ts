@@ -1,7 +1,10 @@
 import {
   collection as firestoreCollection,
   doc as firestoreDoc,
+  limit as firestoreLimit,
   onSnapshot as onFirestoreSnapshot,
+  orderBy as firestoreOrderBy,
+  query as firestoreQuery,
   runTransaction,
 } from 'firebase/firestore';
 import {
@@ -2467,7 +2470,7 @@ export class MontexCutoverEngine {
    * Keeps the production snapshot live: one Firestore listener per collection the
    * user's role may read. Every change rebuilds the snapshot from the listeners'
    * cache (no re-download), debounced so a burst of writes renders once.
-   * Audit logs are not streamed (large, append-only); they load once.
+   * Audit logs stream too, limited to the latest 200 entries.
    */
   subscribeProductionSnapshot(
     user: UserProfile,
@@ -2526,6 +2529,26 @@ export class MontexCutoverEngine {
         }
       )
     );
+
+    // Audit log: only the latest 200 entries, streamed so a new entry shows up at once.
+    if (canRoleReadCollection(role, 'auditLogs')) {
+      unsubs.push(
+        onFirestoreSnapshot(
+          firestoreQuery(
+            firestoreCollection(firestore, 'auditLogs'),
+            firestoreOrderBy('timestamp', 'desc'),
+            firestoreLimit(200)
+          ),
+          (qs) => {
+            auditLogs = qs.docs.map((d) => ({ __id: d.id, ...d.data() }));
+            rebuild();
+          },
+          () => {
+            // Keep whatever was loaded; the one-time read in `source.list` still applies.
+          }
+        )
+      );
+    }
 
     return () => {
       stopped = true;
