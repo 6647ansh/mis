@@ -72,7 +72,9 @@ async function requestAdminEndpoint<T>(
   }
 
   try {
+    // A sleeping free server takes about a minute to start; give up after 90 seconds.
     const response = await fetch(apiUrl(path), {
+      signal: AbortSignal.timeout(90_000),
       ...options,
       headers: {
         ...authHeaderResult.headers,
@@ -107,7 +109,9 @@ async function requestAdminEndpoint<T>(
       status: 503,
       code: 'NETWORK_ERROR',
       message: ADMIN_API_BASE
-        ? 'The admin server is starting up. Wait a minute and try again.'
+        ? err?.name === 'TimeoutError'
+          ? 'The admin server did not answer in 90 seconds. Try again; if it keeps failing, check the server on Render.'
+          : 'The admin server is starting up. Wait a minute and try again.'
         : err?.message || 'Could not reach the admin server.',
     };
   }

@@ -73,6 +73,22 @@ function Person({ u }: { u: UserProfile }) {
   );
 }
 
+// The free admin server sleeps when idle; say so instead of leaving a silent spinner.
+function SlowServerHint({ active }: { active: boolean }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) return setSlow(false);
+    const t = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, [active]);
+  if (!slow) return null;
+  return (
+    <p role="status" className="text-sm text-muted-foreground">
+      Starting the admin server. On the free plan this can take up to a minute; keep this window open.
+    </p>
+  );
+}
+
 export function AdminPage() {
   const { currentUser, usersList, setUsersList, auditLogs, activeRbacGroup, approveEmployeeAccount, rejectEmployeeAccount } = useRtdb();
   const isSuperAdmin = currentUser.accountStatus === 'active' && currentUser.role === 'super_admin';
@@ -335,6 +351,8 @@ export function AdminPage() {
         <StatTile label="Audit log" value={auditLogs.length} hint="Latest 200 events" onClick={() => setTab('audit')} />
       </div>
 
+      <SlowServerHint active={busyId !== null} />
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="requests">
@@ -545,6 +563,7 @@ function ApproveForm({
           Approve
         </Button>
       </DialogFooter>
+      <SlowServerHint active={saving} />
     </form>
   );
 }
@@ -582,6 +601,7 @@ function RejectForm({ user, onCancel, onSubmit }: { user: UserProfile; onCancel:
           Reject
         </Button>
       </DialogFooter>
+      <SlowServerHint active={saving} />
     </form>
   );
 }
@@ -656,6 +676,7 @@ function InviteForm({ roles, onDone, onCreated }: { roles: UserRole[]; onDone: (
           Send invite
         </Button>
       </DialogFooter>
+      <SlowServerHint active={saving} />
     </form>
   );
 }
