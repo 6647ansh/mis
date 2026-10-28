@@ -87,6 +87,19 @@ export function createExpressApp(options: CreateExpressAppOptions = {}): Express
   app.get(`/${SHOWCASE_PDF_FILENAME}`, sendShowcasePdf);
   app.get('/api/showcase-pdf', sendShowcasePdf);
 
+  // One log line per API call (start and finish with time taken), so a slow or stuck
+  // request is visible in the hosting logs. Never logs bodies or tokens.
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS' || req.path === '/health') return next();
+    const started = Date.now();
+    console.log(`[api] -> ${req.method} ${req.originalUrl}`);
+    res.on('finish', () => console.log(`[api] <- ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - started}ms`));
+    res.on('close', () => {
+      if (!res.writableFinished) console.log(`[api] xx ${req.method} ${req.originalUrl} closed by the browser after ${Date.now() - started}ms`);
+    });
+    next();
+  });
+
   // Strict CORS & Security Headers for /api/* routes
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
