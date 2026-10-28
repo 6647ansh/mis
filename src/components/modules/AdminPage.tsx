@@ -82,6 +82,29 @@ export function AdminPage() {
     if (isApprover) wakeAdminApi();
   }, [isApprover]);
 
+  const [backingUp, setBackingUp] = useState(false);
+  const runBackup = async () => {
+    setBackingUp(true);
+    try {
+      const { downloadFullBackup } = await import('../../services/backupService');
+      const res = await downloadFullBackup(currentUser.email);
+      const failed = res.collections.filter((c) => c.error);
+      if (failed.length) {
+        toast.warning('Backup downloaded, but some data could not be read', {
+          description: `${res.totalRecords} records saved. Not read: ${failed.map((c) => c.name).join(', ')}`,
+        });
+      } else {
+        toast.success('Backup downloaded', {
+          description: `${res.totalRecords} records in ${res.fileBase}.json and .xlsx. Keep both files somewhere safe, such as Google Drive.`,
+        });
+      }
+    } catch (err: any) {
+      toast.error('Backup failed', { description: err?.message || 'Check your internet connection and try again.' });
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
   const [tab, setTab] = useState('requests');
   const [approving, setApproving] = useState<UserProfile | null>(null);
   const [rejecting, setRejecting] = useState<UserProfile | null>(null);
@@ -292,9 +315,16 @@ export function AdminPage() {
         title="Admin"
         description="Approve who can sign in, set each person's role, and review every change made in the system."
         actions={
-          <Button onClick={() => setInviting(true)}>
-            <UserPlus /> Invite employee
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {isSuperAdmin && (
+              <Button variant="secondary" loading={backingUp} onClick={runBackup}>
+                <Download /> Download backup
+              </Button>
+            )}
+            <Button onClick={() => setInviting(true)}>
+              <UserPlus /> Invite employee
+            </Button>
+          </div>
         }
       />
 
