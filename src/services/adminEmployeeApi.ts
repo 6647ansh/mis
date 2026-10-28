@@ -1,4 +1,21 @@
 import { auth } from '../lib/firebase';
+import appletConfig from '../../firebase-applet-config.json';
+
+// The admin server runs separately from the website once hosted (Render). Locally it is the
+// same origin, so the base stays empty.
+const ADMIN_API_BASE = String(
+  ((import.meta as any).env?.VITE_ADMIN_API_URL as string | undefined) ||
+    (appletConfig as { adminApiUrl?: string }).adminApiUrl ||
+    ''
+).replace(/\/+$/, '');
+
+const apiUrl = (path: string) => `${ADMIN_API_BASE}${path}`;
+
+/** The free admin server sleeps when idle; call this when an admin screen opens so it is awake by the first action. */
+export function wakeAdminApi(): void {
+  if (!ADMIN_API_BASE) return;
+  fetch(apiUrl('/api/health')).catch(() => {});
+}
 import { UserProfile, UserRole } from '../types/mis';
 
 export interface AdminApiResult<T = any> {
@@ -55,7 +72,7 @@ async function requestAdminEndpoint<T>(
   }
 
   try {
-    const response = await fetch(path, {
+    const response = await fetch(apiUrl(path), {
       ...options,
       headers: {
         ...authHeaderResult.headers,
@@ -89,9 +106,9 @@ async function requestAdminEndpoint<T>(
       success: false,
       status: 503,
       code: 'NETWORK_ERROR',
-      message:
-        err?.message ||
-        'Unable to reach the trusted /api/admin/employees backend endpoint.',
+      message: ADMIN_API_BASE
+        ? 'The admin server is starting up. Wait a minute and try again.'
+        : err?.message || 'Could not reach the admin server.',
     };
   }
 }

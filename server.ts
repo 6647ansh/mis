@@ -96,13 +96,18 @@ export function createExpressApp(options: CreateExpressAppOptions = {}): Express
       .filter(Boolean);
 
     if (origin) {
-      const isSameHost =
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1') ||
-        origin.endsWith('.run.app') ||
-        allowedOriginsEnv.includes(origin);
+      let isLocal = false;
+      try {
+        const { hostname } = new URL(origin);
+        isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+      } catch {
+        isLocal = false;
+      }
+      const isAllowed =
+        allowedOriginsEnv.includes(origin) ||
+        (isLocal && process.env.NODE_ENV !== 'production');
 
-      if (!isSameHost && allowedOriginsEnv.length > 0) {
+      if (!isAllowed) {
         res.status(403).json({
           success: false,
           code: 'CORS_ORIGIN_DENIED',
@@ -234,10 +239,13 @@ async function startServer() {
   } else {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    // On Render only the admin API runs; the website itself is on Firebase Hosting.
+    if (fs.existsSync(path.join(distPath, 'index.html'))) {
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   pagesReady = true;

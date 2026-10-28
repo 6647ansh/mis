@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Check, Download, MoreHorizontal, ShieldCheck, UserPlus, Users, UserX, X } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
@@ -18,6 +18,7 @@ import {
   adminDeactivateEmployeeViaApi,
   adminReactivateEmployeeViaApi,
   adminUpdateEmployeeRoleViaApi,
+  wakeAdminApi,
 } from '../../services/adminEmployeeApi';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,6 +78,9 @@ export function AdminPage() {
   const isSuperAdmin = currentUser.accountStatus === 'active' && currentUser.role === 'super_admin';
   const isApprover = currentUser.accountStatus === 'active' && (isSuperAdmin || currentUser.role === 'ceo');
   const assignableRoles = ALL_USER_ROLES.filter((r) => isSuperAdmin || (r !== 'super_admin' && r !== 'ceo'));
+  useEffect(() => {
+    if (isApprover) wakeAdminApi();
+  }, [isApprover]);
 
   const [tab, setTab] = useState('requests');
   const [approving, setApproving] = useState<UserProfile | null>(null);

@@ -8,5 +8,6 @@
   "messagingSenderId": "980860862120",
   "measurementId": "G-M9W4J7KBTY",
   "oAuthClientId": "",
-  "recaptchaSiteKey": ""
+  "recaptchaSiteKey": "",
+  "adminApiUrl": ""
 }

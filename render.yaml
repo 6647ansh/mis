@@ -1,0 +1,26 @@
+# Render Blueprint for the Montex MIS admin API (employee roles, deactivation, new accounts).
+# The website itself is on Firebase Hosting; this service only answers /api/*.
+services:
+  - type: web
+    name: montex-mis-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: claude/restore-folder-structure
+    buildCommand: npm install --legacy-peer-deps
+    startCommand: npm run start:api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: FIREBASE_PROJECT_ID
+        value: montexforge-7d537
+      - key: FIREBASE_FIRESTORE_DATABASE_ID
+        value: "(default)"
+      - key: ALLOWED_CORS_ORIGINS
+        value: https://montexforge-7d537.web.app,https://montexforge-7d537.firebaseapp.com
+      # Paste the service-account JSON in the Render dashboard; never commit it.
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
