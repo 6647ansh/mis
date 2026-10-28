@@ -84,9 +84,17 @@ export function getFirebaseAdminApp(): AdminApp {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
   if (serviceAccountJson && serviceAccountJson.trim().startsWith('{')) {
-    const parsed = JSON.parse(serviceAccountJson);
+    let credential;
+    try {
+      credential = cert(JSON.parse(serviceAccountJson));
+    } catch (err: any) {
+      throw new Error(
+        `FIREBASE_SERVICE_ACCOUNT_JSON is not a valid service-account key (${err?.message || err}). ` +
+          'Paste the whole downloaded key file, from the first { to the last }.'
+      );
+    }
     cachedAdminApp = initializeApp({
-      credential: cert(parsed),
+      credential,
       projectId: SERVER_PROJECT_ID,
       databaseURL: SERVER_RTDB_URL,
     });

@@ -7,7 +7,8 @@ services:
     plan: free
     region: singapore
     branch: claude/restore-folder-structure
-    buildCommand: npm install --legacy-peer-deps
+    # --include=dev: NODE_ENV=production would otherwise skip tsx, which runs the server.
+    buildCommand: npm install --legacy-peer-deps --include=dev
     startCommand: npm run start:api
     healthCheckPath: /api/health
     envVars:
