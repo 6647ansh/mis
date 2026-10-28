@@ -1325,16 +1325,18 @@ export function mapRawMaterialToFirestoreDoc(
     128
   );
 
+  const steelGrade = requiredText(m.grade, 64, 'Enter the steel grade.');
+  const supplierName = optionalText(m.supplier, 160);
+  const locationYard = optionalText(m.locationBay, 80);
   return {
     gradeId: m.id,
-    steelGrade: (m.grade || 'ASTM A105').slice(0, 64),
-    category: m.grade.includes('316') || m.grade.includes('304') ? 'Stainless Steel' : 'Carbon Steel',
+    steelGrade,
     availableMT: Math.max(0, Number((m.availableStockMt ?? m.currentStockMt).toFixed(2))),
     allocatedMT: Math.max(0, Number((m.reservedStockMt || 0).toFixed(2))),
     reorderLevelMT: Math.max(0, Number((m.reorderLevelMt || 0).toFixed(2))),
     unitCostPerMT: Math.max(0, m.standardRatePerMt || 0),
-    supplierName: (m.supplier || 'Approved Steel Mill').slice(0, 160),
-    locationYard: (m.locationBay || 'Bay A').slice(0, 80),
+    ...(supplierName ? { supplierName } : {}),
+    ...(locationYard ? { locationYard } : {}),
     status: statusMap[m.status] || 'Healthy',
     lastUpdated: nowIso,
     updatedBy,
@@ -1362,7 +1364,7 @@ export function mapFirestoreDocToRawMaterial(doc: FirestoreRawMaterialDoc): RawM
   return {
     id: doc.gradeId,
     code: meta.cd || doc.gradeId,
-    name: meta.nm || `${doc.steelGrade} Forging Billet`,
+    name: meta.nm || doc.steelGrade,
     grade: doc.steelGrade,
     sectionShape: 'Round Billet',
     dimensionsMm: meta.dm || '',
@@ -1918,9 +1920,9 @@ export function mapSupplierToFirestoreDoc(
   const nowIso = new Date().toISOString();
   return {
     id: s.id,
-    name: (s.name || 'Steel Mill Supplier').slice(0, 160),
+    name: requiredText(s.name, 160, 'Enter the mill name.'),
     location: packMeta(
-      s.location || 'India',
+      s.location || '',
       {
         cd: s.code,
         cp: s.contactPerson,
@@ -1932,11 +1934,12 @@ export function mapSupplierToFirestoreDoc(
       120
     ),
     primaryGrades: (s.approvedGrades || []).slice(0, 20),
-    leadTimeDays: Math.max(0, s.leadTimeDays || 14),
-    qualityRating: Math.min(5, Math.max(0, Number(((s.qualityRatingPercent || 95) / 20).toFixed(2)))),
-    onTimeDeliveryPct: 95,
+    leadTimeDays: Math.max(0, s.leadTimeDays || 0),
+    ...(s.qualityRatingPercent
+      ? { qualityRating: Math.min(5, Math.max(0, Number((s.qualityRatingPercent / 20).toFixed(2)))) }
+      : {}),
+    // Mills are added to the approved list on purpose; suspension is a separate decision.
     approvalStatus: 'Approved',
-    contactEmail: 'dispatch@steelmill.com',
     createdAt: nowIso,
     updatedAt: nowIso,
     dataOrigin,
@@ -1944,13 +1947,13 @@ export function mapSupplierToFirestoreDoc(
 }
 
 export function mapFirestoreDocToSupplier(doc: FirestoreSupplierDoc): SteelMillSupplier {
-  const { primary: location, meta } = unpackMeta(doc.location, 'India');
+  const { primary: location, meta } = unpackMeta(doc.location, '');
   return {
     id: doc.id,
     code: meta.cd || `SUP-${doc.id}`,
     name: doc.name,
-    location,
-    approvedGrades: doc.primaryGrades || ['ASTM A105'],
+    location: location === '-' ? '' : location,
+    approvedGrades: doc.primaryGrades || [],
     certification: meta.cert || '',
     leadTimeDays: doc.leadTimeDays,
     creditTermsDays: meta.ct !== undefined ? Number(meta.ct) : 0,

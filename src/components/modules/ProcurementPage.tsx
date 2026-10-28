@@ -54,6 +54,7 @@ const decimal = (v: string) => v.replace(/[^0-9.]/g, '');
 export function ProcurementPage() {
   const { currentUser, activeRbacGroup, rawMaterials, salesOrders, purchaseOrders, purchaseRequisitions, suppliers, approvePurchaseRequisitionRecord } = useRtdb();
   const active = currentUser.accountStatus === 'active';
+  const [addingMill, setAddingMill] = useState(false);
   const canPo = active && PO_WRITERS.includes(currentUser.role);
   const canGrn = active && GRN_WRITERS.includes(currentUser.role);
   const canPr = active && PR_WRITERS.includes(currentUser.role);
@@ -348,6 +349,11 @@ export function ProcurementPage() {
                       <ShoppingCart /> Mill purchase order
                     </DropdownMenuItem>
                   )}
+                  {canPo && (
+                    <DropdownMenuItem onSelect={() => setAddingMill(true)}>
+                      <Truck /> Approved mill
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -414,8 +420,83 @@ export function ProcurementPage() {
           </DialogContent>
         )}
       </Dialog>
+      <Dialog open={addingMill} onOpenChange={setAddingMill}>
+        {addingMill && (
+          <DialogContent className="sm:max-w-xl">
+            <MillForm existing={suppliers} onDone={() => setAddingMill(false)} />
+          </DialogContent>
+        )}
+      </Dialog>
       <DocumentPreviewModal payload={preview} onClose={() => setPreview(null)} />
     </div>
+  );
+}
+
+function MillForm({ existing, onDone }: { existing: SteelMillSupplier[]; onDone: () => void }) {
+  const { upsertSupplierRecord } = useRtdb();
+  const [f, setF] = useState({ name: '', location: '', grades: '', lead: '', contact: '', phone: '', credit: '' });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f, clean?: (v: string) => string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setF((p) => ({ ...p, [k]: clean ? clean(e.target.value) : e.target.value }));
+  const digits = (v: string) => v.replace(/[^0-9]/g, '');
+
+  const submit = async () => {
+    const name = f.name.trim();
+    if (name.length < 2) return setError('Enter the mill name.');
+    if (existing.some((x) => x.name.trim().toLowerCase() === name.toLowerCase())) return setError('This mill is already in the list.');
+    if (f.lead.trim() === '') return setError('Enter the usual delivery time in days.');
+    setError('');
+    setSaving(true);
+    const id = newRecordId('MILL');
+    const res = await upsertSupplierRecord(
+      {
+        id,
+        code: id,
+        name,
+        location: f.location.trim(),
+        approvedGrades: f.grades.split(',').map((g) => g.trim()).filter(Boolean).slice(0, 20),
+        certification: '',
+        leadTimeDays: Number(f.lead),
+        creditTermsDays: Number(f.credit || 0),
+        qualityRatingPercent: 0,
+        contactPerson: f.contact.trim(),
+        phone: f.phone.trim(),
+      },
+      true
+    );
+    setSaving(false);
+    if (!res.success) return setError(res.error || 'The mill could not be saved.');
+    toast.success('Mill added', { description: name });
+    onDone();
+  };
+
+  return (
+    <Shell title="Add approved mill" description="Mills on this list can be chosen on a purchase order." error={error} saving={saving} submit="Add mill" onCancel={onDone} onSubmit={submit}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Mill name" htmlFor="ml-name" className="sm:col-span-2">
+          <Input id="ml-name" maxLength={160} value={f.name} onChange={set('name')} />
+        </Field>
+        <Field label="Location (optional)" htmlFor="ml-loc">
+          <Input id="ml-loc" maxLength={60} value={f.location} onChange={set('location')} />
+        </Field>
+        <Field label="Usual delivery time (days)" htmlFor="ml-lead">
+          <Input id="ml-lead" inputMode="numeric" value={f.lead} onChange={set('lead', digits)} />
+        </Field>
+        <Field label="Grades they supply (optional, comma separated)" htmlFor="ml-grades" className="sm:col-span-2">
+          <Input id="ml-grades" maxLength={300} value={f.grades} placeholder="e.g. ASTM A105, 42CrMo4" onChange={set('grades')} />
+        </Field>
+        <Field label="Contact person (optional)" htmlFor="ml-contact">
+          <Input id="ml-contact" maxLength={60} value={f.contact} onChange={set('contact')} />
+        </Field>
+        <Field label="Phone (optional)" htmlFor="ml-phone">
+          <Input id="ml-phone" inputMode="tel" maxLength={20} value={f.phone} onChange={set('phone')} />
+        </Field>
+        <Field label="Credit days (optional)" htmlFor="ml-credit">
+          <Input id="ml-credit" inputMode="numeric" value={f.credit} onChange={set('credit', digits)} />
+        </Field>
+      </div>
+    </Shell>
   );
 }
 

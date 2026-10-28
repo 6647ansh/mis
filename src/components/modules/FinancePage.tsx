@@ -77,6 +77,7 @@ export function FinancePage() {
   const [followUpFor, setFollowUpFor] = useState<OutstandingAgeingRecord | 'new' | null>(null);
   const [receipts, setReceipts] = useState<RecordedPaymentReceiptItem[]>([]);
   const [preview, setPreview] = useState<MontexPdfDocumentPayload | null>(null);
+  const [invoicing, setInvoicing] = useState(false);
 
   const total = outstandingAgeing.reduce((s, a) => s + a.totalOutstanding, 0);
   const over60 = outstandingAgeing.reduce((s, a) => s + a.bucket61to90 + a.bucket90Plus, 0);
@@ -336,8 +337,13 @@ export function FinancePage() {
               <Download /> Export
             </Button>
             {canFollowUp && (
-              <Button onClick={() => setFollowUpFor('new')}>
+              <Button variant={canWrite ? 'secondary' : 'primary'} onClick={() => setFollowUpFor('new')}>
                 <Plus /> Log follow-up
+              </Button>
+            )}
+            {canWrite && (
+              <Button onClick={() => setInvoicing(true)}>
+                <Receipt /> Record invoice
               </Button>
             )}
           </>
@@ -412,6 +418,14 @@ export function FinancePage() {
         {followUpFor !== null && (
           <DialogContent className="sm:max-w-xl">
             <FollowUpForm accounts={outstandingAgeing} initial={followUpFor === 'new' ? undefined : followUpFor} onDone={() => setFollowUpFor(null)} />
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={invoicing} onOpenChange={setInvoicing}>
+        {invoicing && (
+          <DialogContent className="sm:max-w-xl">
+            <InvoiceForm onDone={() => setInvoicing(false)} />
           </DialogContent>
         )}
       </Dialog>
@@ -745,5 +759,111 @@ function TallyCheck({ orders }: { orders: OrderJourney[] }) {
         </>
       )}
     </div>
+  );
+}
+
+const addDays = (iso: string, days: number) => {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Records an invoice made in Tally against an order, and adds it to the customer's dues. */
+function InvoiceForm({ onDone }: { onDone: () => void }) {
+  const { salesOrders, customers, recordInvoiceRecord } = useRtdb();
+  const orders = useMemo(
+    () => [...salesOrders].sort((a, b) => (b.jobNumber || '').localeCompare(a.jobNumber || '')),
+    [salesOrders]
+  );
+  const [orderId, setOrderId] = useState('');
+  const [number, setNumber] = useState('');
+  const [date, setDate] = useState(todayIso());
+  const [amount, setAmount] = useState('');
+  const [due, setDue] = useState('');
+  const [dueTouched, setDueTouched] = useState(false);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const order = orders.find((o) => o.id === orderId);
+  const customer = order ? customers.find((c) => c.id === order.customerId || c.name === order.customerName) : undefined;
+  const creditDays = customer?.creditDays || 0;
+  const suggestedDue = date ? addDays(date, creditDays) : '';
+  const dueDate = dueTouched ? due : suggestedDue;
+  const value = Number(amount);
+  const prevNumber = order?.invoiceStatus?.invoiceNumber && order.invoiceStatus.invoiceNumber !== '-' ? order.invoiceStatus.invoiceNumber : '';
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saving) return;
+    if (!order) return setError('Choose the order this invoice is for.');
+    if (!customer) return setError(`${order.customerName} is not in the customer list. Add the customer first.`);
+    if (number.trim().length < 2) return setError('Enter the invoice number exactly as in Tally.');
+    if (prevNumber.split(',').map((n) => n.trim().toLowerCase()).includes(number.trim().toLowerCase())) return setError('This invoice number is already recorded on this order.');
+    if (!(value > 0)) return setError('Enter the invoice total including GST.');
+    if (!dueDate || dueDate < date) return setError('The due date cannot be before the invoice date.');
+    setError('');
+    setSaving(true);
+    const res = await recordInvoiceRecord({ order, invoiceNumber: number.trim(), invoiceDate: date, amountInr: value, dueDate });
+    setSaving(false);
+    if (!res.success) return setError(res.error || 'The invoice could not be saved.');
+    if (res.warning) toast.warning('Invoice saved with a problem', { description: res.warning });
+    else toast.success('Invoice recorded', { description: `${number.trim()} · ${formatINR(value)} added to ${customer.name}'s dues` });
+    onDone();
+  };
+
+  return (
+    <form className="space-y-4" noValidate onSubmit={submit}>
+      <DialogHeader>
+        <DialogTitle>Record invoice</DialogTitle>
+        <DialogDescription>Enter the invoice made in Tally. The total including GST is added to the customer's dues.</DialogDescription>
+      </DialogHeader>
+      <Field label="Order" htmlFor="iv-order">
+        <Select id="iv-order" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+          <option value="">Choose</option>
+          {orders.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.jobNumber} · {o.customerName}
+              {o.invoiceStatus?.invoiceNumber && o.invoiceStatus.invoiceNumber !== '-' ? ` (already: ${o.invoiceStatus.invoiceNumber})` : ''}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Invoice number (as in Tally)" htmlFor="iv-no">
+          <Input id="iv-no" className="font-mono" maxLength={40} value={number} onChange={(e) => setNumber(e.target.value)} />
+        </Field>
+        <Field label="Invoice date" htmlFor="iv-date">
+          <Input id="iv-date" type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Invoice total incl. GST (₹)" htmlFor="iv-amt">
+          <Input id="iv-amt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+        </Field>
+        <Field label={customer ? `Payment due (${creditDays} credit days)` : 'Payment due'} htmlFor="iv-due">
+          <Input
+            id="iv-due"
+            type="date"
+            min={date}
+            value={dueDate}
+            onChange={(e) => {
+              setDueTouched(true);
+              setDue(e.target.value);
+            }}
+          />
+        </Field>
+      </div>
+      {prevNumber && <p className="text-xs text-muted-foreground">This order already has invoice {prevNumber}; this one is added to it.</p>}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <DialogFooter>
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={saving}>
+          Record invoice
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

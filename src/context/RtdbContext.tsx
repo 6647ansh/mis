@@ -354,6 +354,21 @@ interface RtdbContextType {
     customer: Customer,
     isNew: boolean
   ) => Promise<CutoverWriteResult<Customer>>;
+  upsertRawMaterialRecord: (
+    material: RawMaterialStock,
+    isNew: boolean
+  ) => Promise<CutoverWriteResult<RawMaterialStock>>;
+  upsertSupplierRecord: (
+    supplier: SteelMillSupplier,
+    isNew: boolean
+  ) => Promise<CutoverWriteResult<SteelMillSupplier>>;
+  recordInvoiceRecord: (input: {
+    order: OrderJourney;
+    invoiceNumber: string;
+    invoiceDate: string;
+    amountInr: number;
+    dueDate: string;
+  }) => Promise<CutoverWriteResult<OrderJourney>>;
   upsertProductRecord: (
     product: Product,
     isNew: boolean
@@ -1470,6 +1485,85 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     return res;
+  };
+
+  const upsertRawMaterialRecord = async (material: RawMaterialStock, isNew: boolean) => {
+    const res = await cutoverEngine.upsertRawMaterial(material, isNew, currentUser);
+    if (res.success && res.data) {
+      const saved = res.data;
+      setRawMaterials((prev) =>
+        prev.some((m) => m.id === saved.id) ? prev.map((m) => (m.id === saved.id ? saved : m)) : [saved, ...prev]
+      );
+    }
+    return res;
+  };
+
+  const upsertSupplierRecord = async (supplier: SteelMillSupplier, isNew: boolean) => {
+    const res = await cutoverEngine.upsertSupplier(supplier, isNew, currentUser);
+    if (res.success && res.data) {
+      const saved = res.data;
+      setSuppliers((prev) =>
+        prev.some((x) => x.id === saved.id) ? prev.map((x) => (x.id === saved.id ? saved : x)) : [saved, ...prev]
+      );
+    }
+    return res;
+  };
+
+  /** Marks the order invoiced (Tally invoice, amount incl. GST), then adds it to the customer's dues. */
+  const recordInvoiceRecord = async (input: {
+    order: OrderJourney;
+    invoiceNumber: string;
+    invoiceDate: string;
+    amountInr: number;
+    dueDate: string;
+  }): Promise<CutoverWriteResult<OrderJourney>> => {
+    const { order } = input;
+    const customer = customers.find((c) => c.id === order.customerId || c.name === order.customerName);
+    if (!customer) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: 'VALIDATION_FAILED', error: 'This order\'s customer is not in the customer list.' };
+    }
+    // An order shipped in parts can carry several invoices; amounts add up and numbers are listed.
+    const prev = order.invoiceStatus;
+    const prevNumber = prev?.invoiceNumber && prev.invoiceNumber !== '-' ? prev.invoiceNumber : '';
+    const numbers = prevNumber ? `${prevNumber}, ${input.invoiceNumber}` : input.invoiceNumber;
+    const invoiceAmount = Number((((prevNumber && prev?.invoiceAmount) || 0) + input.amountInr).toFixed(2));
+    const paidAmount = prevNumber ? prev?.paidAmount || 0 : 0;
+    const invoiced: OrderJourney = {
+      ...order,
+      invoiceStatus: {
+        ...prev,
+        state: paidAmount > 0 ? 'partial' : 'invoiced',
+        invoiceNumber: numbers.length > 64 ? `…${numbers.slice(-63)}` : numbers,
+        invoiceDate: input.invoiceDate,
+        invoiceAmount,
+        paidAmount,
+        outstandingAmount: Number((invoiceAmount - paidAmount).toFixed(2)),
+        paymentDueDate: input.dueDate,
+        tallySyncStatus: 'synced',
+      },
+    };
+    const orderRes = await updateSalesOrderRecord(invoiced, `Invoice ${input.invoiceNumber} recorded`);
+    if (!orderRes.success) return orderRes;
+    const recRes = await cutoverEngine.addInvoiceToReceivable(
+      outstandingAgeing.find((a) => a.customerId === customer.id),
+      { id: customer.id, name: customer.name, creditLimit: customer.creditLimit || 0 },
+      input.amountInr,
+      input.invoiceDate,
+      input.invoiceNumber,
+      currentUser
+    );
+    if (!recRes.success || !recRes.data) {
+      return {
+        ...orderRes,
+        code: 'PARTIAL_WRITE',
+        warning: `Invoice ${input.invoiceNumber} is saved on the order, but it was not added to ${customer.name}'s dues (${recRes.error || 'save failed'}). Ask the administrator to correct the dues.`,
+      };
+    }
+    const saved = recRes.data;
+    setOutstandingAgeing((prev) =>
+      prev.some((a) => a.customerId === saved.customerId) ? prev.map((a) => (a.customerId === saved.customerId ? saved : a)) : [saved, ...prev]
+    );
+    return orderRes;
   };
 
   const recordCustomerPaymentRecord = async (
@@ -2840,6 +2934,9 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         recordDispatchRecord,
         recordCustomerPaymentRecord,
         upsertCustomerRecord,
+        upsertRawMaterialRecord,
+        upsertSupplierRecord,
+        recordInvoiceRecord,
         upsertProductRecord,
         deleteCustomerRecord,
         deleteProductRecord,

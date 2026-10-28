@@ -12,7 +12,7 @@ import { DataTable, type Column } from '@/components/ui/data-table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays';
-import { cn, formatDate, formatNumber, todayIso } from '@/lib/utils';
+import { cn, formatDate, formatNumber, newRecordId, todayIso } from '@/lib/utils';
 
 const WRITERS = ['super_admin', 'ceo', 'stores'];
 const STATUS: Record<string, { tone: 'success' | 'warning' | 'danger'; label: string }> = {
@@ -55,6 +55,7 @@ export function InventoryPage() {
   const canWrite = currentUser.accountStatus === 'active' && WRITERS.includes(currentUser.role);
   const [tab, setTab] = useState('stock');
   const [moving, setMoving] = useState<RawMaterialStock | 'new' | null>(null);
+  const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState<MontexPdfDocumentPayload | null>(null);
 
   const totals = useMemo(
@@ -199,6 +200,11 @@ export function InventoryPage() {
               <Download /> Export
             </Button>
             {canWrite && (
+              <Button variant="secondary" onClick={() => setAdding(true)}>
+                <Plus /> Add material
+              </Button>
+            )}
+            {canWrite && rawMaterials.length > 0 && (
               <Button onClick={() => setMoving('new')}>
                 <Plus /> Record movement
               </Button>
@@ -235,8 +241,114 @@ export function InventoryPage() {
         )}
       </Dialog>
 
+      <Dialog open={adding} onOpenChange={setAdding}>
+        {adding && (
+          <DialogContent className="sm:max-w-xl">
+            <MaterialForm existing={rawMaterials} showRate={['super_admin', 'ceo'].includes(currentUser.role)} onDone={() => setAdding(false)} />
+          </DialogContent>
+        )}
+      </Dialog>
+
       <DocumentPreviewModal payload={preview} onClose={() => setPreview(null)} />
     </div>
+  );
+}
+
+/** A grade and size kept in the yard. It starts at 0 MT; stock comes in through movements, so every tonne has a ledger entry. */
+function MaterialForm({ existing, showRate, onDone }: { existing: RawMaterialStock[]; showRate: boolean; onDone: () => void }) {
+  const { upsertRawMaterialRecord } = useRtdb();
+  const [f, setF] = useState({ grade: '', size: '', reorder: '', minimum: '', rate: '', mill: '', bay: '' });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f, clean?: (v: string) => string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setF((p) => ({ ...p, [k]: clean ? clean(e.target.value) : e.target.value }));
+  const dec = (v: string) => v.replace(/[^0-9.]/g, '');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saving) return;
+    const grade = f.grade.trim();
+    const size = f.size.trim();
+    if (grade.length < 2) return setError('Enter the steel grade, for example ASTM A105 or 42CrMo4.');
+    if (existing.some((m) => m.grade.toLowerCase() === grade.toLowerCase() && (m.dimensionsMm || '').toLowerCase() === size.toLowerCase()))
+      return setError('This grade and size is already in the list.');
+    const reorder = Number(f.reorder || 0);
+    const minimum = Number(f.minimum || 0);
+    if (minimum > 0 && reorder > 0 && minimum > reorder) return setError('The minimum should not be higher than the reorder level.');
+    setError('');
+    setSaving(true);
+    const id = newRecordId('MAT');
+    const res = await upsertRawMaterialRecord(
+      {
+        id,
+        code: id,
+        name: size ? `${grade} ${size}` : grade,
+        grade,
+        sectionShape: 'Round Billet',
+        dimensionsMm: size,
+        currentStockMt: 0,
+        reservedStockMt: 0,
+        availableStockMt: 0,
+        minimumStockMt: minimum,
+        reorderLevelMt: reorder,
+        standardRatePerMt: Number(f.rate || 0),
+        supplier: f.mill.trim(),
+        locationBay: f.bay.trim(),
+        status: reorder > 0 || minimum > 0 ? 'critical' : 'adequate',
+      },
+      true
+    );
+    setSaving(false);
+    if (!res.success) return setError(res.error || 'The material could not be saved.');
+    toast.success('Material added', { description: `${grade}${size ? ` ${size}` : ''}. Record its opening stock with "Record movement".` });
+    onDone();
+  };
+
+  return (
+    <form className="space-y-4" noValidate onSubmit={submit}>
+      <DialogHeader>
+        <DialogTitle>Add material</DialogTitle>
+        <DialogDescription>A grade and size you keep in the yard. It starts at 0 MT; add the opening stock afterwards as a stock movement.</DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Steel grade" htmlFor="mt-grade">
+          <Input id="mt-grade" maxLength={64} value={f.grade} onChange={set('grade')} />
+        </Field>
+        <Field label="Size / section (optional)" htmlFor="mt-size">
+          <Input id="mt-size" maxLength={22} value={f.size} placeholder="e.g. Ø180 mm round" onChange={set('size')} />
+        </Field>
+        <Field label="Reorder level (MT)" htmlFor="mt-reorder">
+          <Input id="mt-reorder" inputMode="decimal" value={f.reorder} onChange={set('reorder', dec)} />
+        </Field>
+        <Field label="Minimum stock (MT, optional)" htmlFor="mt-min">
+          <Input id="mt-min" inputMode="decimal" value={f.minimum} onChange={set('minimum', dec)} />
+        </Field>
+        <Field label="Usual mill (optional)" htmlFor="mt-mill">
+          <Input id="mt-mill" maxLength={160} value={f.mill} onChange={set('mill')} />
+        </Field>
+        <Field label="Yard / bay (optional)" htmlFor="mt-bay">
+          <Input id="mt-bay" maxLength={80} value={f.bay} onChange={set('bay')} />
+        </Field>
+        {showRate && (
+          <Field label="Standard rate (₹ per MT, optional)" htmlFor="mt-rate">
+            <Input id="mt-rate" inputMode="decimal" value={f.rate} onChange={set('rate', dec)} />
+          </Field>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <DialogFooter>
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={saving}>
+          Add material
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 

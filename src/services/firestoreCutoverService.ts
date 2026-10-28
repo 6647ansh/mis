@@ -137,6 +137,7 @@ import {
   mapQualityInspectionToFirestoreDoc,
   mapQuotationToFirestoreDoc,
   mapRawMaterialToFirestoreDoc,
+  mapSupplierToFirestoreDoc,
   mapSalesOrderToFirestoreDoc,
   mapOrderCommercialToFirestoreDoc,
   applyOrderCommercial,
@@ -2707,6 +2708,122 @@ export class MontexCutoverEngine {
     } finally {
       this.releaseLock(lockKey);
     }
+  }
+
+  /** Adds or edits a steel grade / size in the raw-material list. Stock changes go through movements. */
+  async upsertRawMaterial(
+    material: RawMaterialStock,
+    isNew: boolean,
+    user: UserProfile
+  ): Promise<CutoverWriteResult<RawMaterialStock>> {
+    const authCheck = this.verifyRoleWrite(user, 'rawMaterials', ['super_admin', 'ceo', 'stores'], isNew ? 'add a material' : 'edit a material');
+    if (!authCheck.allowed) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
+    }
+    let docPayload: ReturnType<typeof mapRawMaterialToFirestoreDoc>;
+    try {
+      docPayload = mapRawMaterialToFirestoreDoc(material, 'production');
+    } catch (err: any) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: 'VALIDATION_FAILED', error: err?.message || 'The material is missing required details.' };
+    }
+    const res = isNew
+      ? await this.fs.createDocument('rawMaterials', material.id, docPayload, {
+          auditAction: 'MATERIAL_ADDED',
+          auditDetails: `Added material ${material.grade}${material.dimensionsMm ? ` ${material.dimensionsMm}` : ''}`,
+        })
+      : await this.fs.setDocument('rawMaterials', material.id, docPayload, {
+          merge: false,
+          auditAction: 'MATERIAL_UPDATED',
+          auditDetails: `Updated material ${material.grade}`,
+        });
+    if (!res.success || !res.data) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+    }
+    return { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: mapFirestoreDocToRawMaterial(res.data as any) };
+  }
+
+  /** Adds or edits an approved steel mill. */
+  async upsertSupplier(
+    supplier: SteelMillSupplier,
+    isNew: boolean,
+    user: UserProfile
+  ): Promise<CutoverWriteResult<SteelMillSupplier>> {
+    const authCheck = this.verifyRoleWrite(user, 'suppliers', ['super_admin', 'ceo', 'purchase'], isNew ? 'add a mill' : 'edit a mill');
+    if (!authCheck.allowed) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
+    }
+    let docPayload: ReturnType<typeof mapSupplierToFirestoreDoc>;
+    try {
+      docPayload = mapSupplierToFirestoreDoc(supplier, 'production');
+    } catch (err: any) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: 'VALIDATION_FAILED', error: err?.message || 'The mill is missing required details.' };
+    }
+    const res = isNew
+      ? await this.fs.createDocument('suppliers', supplier.id, docPayload, {
+          auditAction: 'SUPPLIER_ADDED',
+          auditDetails: `Added mill ${supplier.name}`,
+        })
+      : await this.fs.setDocument('suppliers', supplier.id, docPayload, {
+          merge: false,
+          auditAction: 'SUPPLIER_UPDATED',
+          auditDetails: `Updated mill ${supplier.name}`,
+        });
+    if (!res.success || !res.data) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+    }
+    return { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: mapFirestoreDocToSupplier(res.data as any) };
+  }
+
+  /**
+   * Adds a Tally invoice (amount including GST) to the customer's receivable. The amount
+   * goes into the 0–30 day bucket; payments clear the oldest buckets first.
+   */
+  async addInvoiceToReceivable(
+    current: OutstandingAgeingRecord | undefined,
+    customer: { id: string; name: string; creditLimit: number },
+    amountInr: number,
+    invoiceDate: string,
+    invoiceNumber: string,
+    user: UserProfile
+  ): Promise<CutoverWriteResult<OutstandingAgeingRecord>> {
+    const authCheck = this.verifyRoleWrite(user, 'outstandingPayments', ['super_admin', 'ceo', 'finance'], 'record an invoice');
+    if (!authCheck.allowed) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
+    }
+    const base = current || {
+      customerId: customer.id,
+      customerName: customer.name,
+      totalOutstanding: 0,
+      bucket0to30: 0,
+      bucket31to60: 0,
+      bucket61to90: 0,
+      bucket90Plus: 0,
+      creditLimit: customer.creditLimit,
+      creditExceeded: false,
+      oldestInvoiceDate: invoiceDate,
+    };
+    const total = Number((base.totalOutstanding + amountInr).toFixed(2));
+    const updated: OutstandingAgeingRecord = {
+      ...base,
+      customerName: customer.name,
+      creditLimit: customer.creditLimit,
+      totalOutstanding: total,
+      bucket0to30: Number((base.bucket0to30 + amountInr).toFixed(2)),
+      creditExceeded: customer.creditLimit > 0 && total > customer.creditLimit,
+      oldestInvoiceDate:
+        current && current.totalOutstanding > 0 && current.oldestInvoiceDate && current.oldestInvoiceDate < invoiceDate
+          ? current.oldestInvoiceDate
+          : invoiceDate,
+    };
+    const res = await this.fs.setDocument('outstandingPayments', customer.id, mapOutstandingToFirestoreDoc(updated, 'production'), {
+      merge: false,
+      auditAction: 'CUSTOMER_INVOICE_RECORDED',
+      auditDetails: `Invoice ${invoiceNumber} of INR ${amountInr} for ${customer.name}`,
+    });
+    if (!res.success || !res.data) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+    }
+    return { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: updated };
   }
 
   async upsertCustomer(
