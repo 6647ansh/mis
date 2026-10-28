@@ -486,6 +486,24 @@ export interface OutstandingAgeingRecord {
   creditLimitExceeded?: boolean;
   oldestInvoiceDate: string; // YYYY-MM-DD
   dataOrigin?: DataRecordOrigin;
+  /** Open invoices behind the balance; their age (from the invoice date) sets the buckets. */
+  invoices?: ReceivableInvoice[];
+  /** Balance carried over as fixed buckets from before invoices were recorded one by one. */
+  carriedOver?: { bucket0to30: number; bucket31to60: number; bucket61to90: number; bucket90Plus: number };
+}
+
+/** One customer invoice (made in Tally, total incl. GST) and how much of it is still unpaid. */
+export interface ReceivableInvoice {
+  id: string;
+  invoiceNumber: string;
+  customerId: string;
+  customerName: string;
+  orderId?: string;
+  invoiceDate: string; // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD
+  amount: number;
+  received: number;
+  balance: number;
 }
 
 /**

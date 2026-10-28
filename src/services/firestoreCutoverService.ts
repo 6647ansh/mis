@@ -106,6 +106,11 @@ import {
   mapFirestoreDocToMaintenanceTicket,
   mapFirestoreDocToNcrCapa,
   mapFirestoreDocToOutstanding,
+  aggregateCustomerReceivable,
+  buildOutstandingAgeing,
+  localDateIso,
+  daysBetween,
+  mapReceivableInvoiceToFirestoreDoc,
   mapFirestoreDocToPaymentFollowUp,
   mapFirestoreDocToPowerLog,
   mapFirestoreDocToProduct,
@@ -622,7 +627,7 @@ export class MontexCutoverEngine {
       stockMovements,
       qualityInspections,
       dispatches,
-      outstandingAgeing,
+      outstandingDocs,
       actionQueue,
       customers,
       products,
@@ -664,9 +669,9 @@ export class MontexCutoverEngine {
         'dispatches',
         mapFirestoreDocToDispatch
       ),
-      loadIfPermitted<FirestoreOutstandingPaymentDoc, OutstandingAgeingRecord>(
+      loadIfPermitted<FirestoreOutstandingPaymentDoc, FirestoreOutstandingPaymentDoc>(
         'outstandingPayments',
-        mapFirestoreDocToOutstanding
+        (d) => d
       ),
       loadIfPermitted<FirestoreActionQueueDoc, ActionQueueItem>(
         'actionQueue',
@@ -735,6 +740,12 @@ export class MontexCutoverEngine {
         mapFirestoreDocToAuditLog
       ),
     ]);
+
+    // Ageing is worked out from each invoice's date every time the data loads.
+    const outstandingAgeing = buildOutstandingAgeing(
+      outstandingDocs,
+      customers.map((c) => ({ id: c.id, name: c.name, creditLimit: c.creditLimit || 0 }))
+    );
 
     // Order value, rates and invoice amounts come from /orderCommercials, readable
     // only by commercial roles; everyone else gets orders marked commercialRestricted.
@@ -2648,62 +2659,110 @@ export class MontexCutoverEngine {
     }
 
     try {
-      let rem = paymentAmountInr;
-      const deduct90 = Math.min(record.bucket90Plus, rem);
-      rem -= deduct90;
-      const deduct61 = Math.min(record.bucket61to90, rem);
-      rem -= deduct61;
-      const deduct31 = Math.min(record.bucket31to60, rem);
-      rem -= deduct31;
-      const deduct0 = Math.min(record.bucket0to30, rem);
-
-      const newTotal = Math.max(0, record.totalOutstanding - paymentAmountInr);
-      const updatedRecord: OutstandingAgeingRecord = {
-        ...record,
-        totalOutstanding: newTotal,
-        bucket90Plus: record.bucket90Plus - deduct90,
-        bucket61to90: record.bucket61to90 - deduct61,
-        bucket31to60: record.bucket31to60 - deduct31,
-        bucket0to30: record.bucket0to30 - deduct0,
-        creditExceeded: newTotal > record.creditLimit,
-      };
-
       if (isDemoMode) {
-        return {
-          success: true,
-          persistedToFirestore: false,
-          persistedToRtdb: false,
-          code: 'DEMO_SESSION_ONLY',
-          data: updatedRecord,
-        };
+        return { success: true, persistedToFirestore: false, persistedToRtdb: false, code: 'DEMO_SESSION_ONLY', data: record };
+      }
+      let rem = paymentAmountInr;
+      const today = localDateIso();
+
+      // Oldest dues first. Carried-over amounts only have an age band, so each band is
+      // cleared before the invoices in that band, and bands go from 90+ days down to 0–30.
+      const BANDS = [
+        { key: 'bucket90Plus', min: 91 },
+        { key: 'bucket61to90', min: 61 },
+        { key: 'bucket31to60', min: 31 },
+        { key: 'bucket0to30', min: 0 },
+      ] as const;
+      const carried = record.carriedOver ? { ...record.carriedOver } : undefined;
+      let carriedChanged = false;
+      const invoices = [...(record.invoices || [])];
+      const touched = new Set<number>();
+      const openByAge = invoices
+        .map((inv, idx) => ({ inv, idx, age: Math.max(0, daysBetween(inv.invoiceDate, today)) }))
+        .filter(({ inv }) => inv.balance > 0)
+        .sort((a, b) => b.age - a.age);
+      for (let band = 0; band < BANDS.length && rem > 0; band++) {
+        const { key, min } = BANDS[band];
+        const max = band === 0 ? Infinity : BANDS[band - 1].min - 1;
+        if (carried && carried[key] > 0) {
+          const d = Math.min(carried[key], rem);
+          carried[key] = Number((carried[key] - d).toFixed(2));
+          rem = Number((rem - d).toFixed(2));
+          carriedChanged = true;
+        }
+        for (const { inv, idx, age } of openByAge) {
+          if (rem <= 0) break;
+          if (age < min || age > max) continue;
+          const pay = Math.min(invoices[idx].balance, rem);
+          invoices[idx] = { ...inv, received: Number((inv.received + pay).toFixed(2)), balance: Number((inv.balance - pay).toFixed(2)) };
+          touched.add(idx);
+          rem = Number((rem - pay).toFixed(2));
+        }
       }
 
-      const docPayload = mapOutstandingToFirestoreDoc(updatedRecord, 'production');
-      const res = await this.fs.setDocument(
-        'outstandingPayments',
-        updatedRecord.customerId,
-        docPayload,
-        {
+      if (carried && carriedChanged) {
+        const carriedTotal = carried.bucket0to30 + carried.bucket31to60 + carried.bucket61to90 + carried.bucket90Plus;
+        const res = await this.fs.setDocument(
+          'outstandingPayments',
+          record.customerId,
+          mapOutstandingToFirestoreDoc(
+            {
+              customerId: record.customerId,
+              customerName: record.customerName,
+              totalOutstanding: Number(carriedTotal.toFixed(2)),
+              ...carried,
+              creditLimit: record.creditLimit,
+              creditExceeded: false,
+              oldestInvoiceDate: record.oldestInvoiceDate,
+            },
+            'production'
+          ),
+          {
+            merge: false,
+            auditAction: 'CUSTOMER_PAYMENT_RECEIPT_POSTED',
+            auditDetails: `Payment UTR ${utrReference} (INR ${paymentAmountInr}) for ${record.customerName}: carried-over balance`,
+          }
+        );
+        if (!res.success) {
+          return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
+        }
+      }
+      const settled: string[] = [];
+      for (const idx of touched) {
+        const inv = invoices[idx];
+        const paid = Number((inv.received - (record.invoices || [])[idx].received).toFixed(2));
+        const res = await this.fs.setDocument('outstandingPayments', inv.id, mapReceivableInvoiceToFirestoreDoc(inv, today), {
           merge: false,
           auditAction: 'CUSTOMER_PAYMENT_RECEIPT_POSTED',
-          auditDetails: `Posted payment INR ${paymentAmountInr} (UTR ${utrReference}) for ${record.customerName}`,
+          auditDetails: `Payment UTR ${utrReference}: INR ${paid} against invoice ${inv.invoiceNumber} of ${record.customerName}`,
+        });
+        if (!res.success) {
+          return {
+            success: false,
+            persistedToFirestore: carriedChanged || settled.length > 0,
+            persistedToRtdb: false,
+            code: res.code,
+            error: `Only part of the payment was applied${settled.length ? ` (invoices ${settled.join(', ')})` : ''}. Invoice ${inv.invoiceNumber} was not updated: ${res.message}`,
+          };
         }
-      );
-      if (!res.success || !res.data) {
-        return {
-          success: false,
-          persistedToFirestore: false,
-          persistedToRtdb: false,
-          code: res.code,
-          error: res.message,
-        };
+        settled.push(inv.invoiceNumber);
       }
+      const carriedOver = carried;
+
       return {
         success: true,
         persistedToFirestore: true,
         persistedToRtdb: false,
         code: 'OK',
-        data: mapFirestoreDocToOutstanding(res.data),
+        data: aggregateCustomerReceivable({
+          customerId: record.customerId,
+          customerName: record.customerName,
+          creditLimit: record.creditLimit,
+          carriedOver,
+          carriedOverOldestDate: record.oldestInvoiceDate,
+          invoices,
+          today,
+        }),
       };
     } finally {
       this.releaseLock(lockKey);
@@ -2775,8 +2834,8 @@ export class MontexCutoverEngine {
   }
 
   /**
-   * Adds a Tally invoice (amount including GST) to the customer's receivable. The amount
-   * goes into the 0–30 day bucket; payments clear the oldest buckets first.
+   * Records a Tally invoice (amount including GST) as its own receivable. Its age, and so
+   * its bucket, is worked out from the invoice date whenever the data loads.
    */
   async addInvoiceToReceivable(
     current: OutstandingAgeingRecord | undefined,
@@ -2784,46 +2843,55 @@ export class MontexCutoverEngine {
     amountInr: number,
     invoiceDate: string,
     invoiceNumber: string,
-    user: UserProfile
+    user: UserProfile,
+    dueDate: string,
+    orderId?: string
   ): Promise<CutoverWriteResult<OutstandingAgeingRecord>> {
     const authCheck = this.verifyRoleWrite(user, 'outstandingPayments', ['super_admin', 'ceo', 'finance'], 'record an invoice');
     if (!authCheck.allowed) {
       return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: authCheck.code, error: authCheck.error };
     }
-    const base = current || {
+    const today = localDateIso();
+    const invoice = {
+      id: `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+      invoiceNumber,
       customerId: customer.id,
       customerName: customer.name,
-      totalOutstanding: 0,
-      bucket0to30: 0,
-      bucket31to60: 0,
-      bucket61to90: 0,
-      bucket90Plus: 0,
-      creditLimit: customer.creditLimit,
-      creditExceeded: false,
-      oldestInvoiceDate: invoiceDate,
+      ...(orderId ? { orderId } : {}),
+      invoiceDate,
+      dueDate,
+      amount: amountInr,
+      received: 0,
+      balance: amountInr,
     };
-    const total = Number((base.totalOutstanding + amountInr).toFixed(2));
-    const updated: OutstandingAgeingRecord = {
-      ...base,
-      customerName: customer.name,
-      creditLimit: customer.creditLimit,
-      totalOutstanding: total,
-      bucket0to30: Number((base.bucket0to30 + amountInr).toFixed(2)),
-      creditExceeded: customer.creditLimit > 0 && total > customer.creditLimit,
-      oldestInvoiceDate:
-        current && current.totalOutstanding > 0 && current.oldestInvoiceDate && current.oldestInvoiceDate < invoiceDate
-          ? current.oldestInvoiceDate
-          : invoiceDate,
-    };
-    const res = await this.fs.setDocument('outstandingPayments', customer.id, mapOutstandingToFirestoreDoc(updated, 'production'), {
-      merge: false,
+    let docPayload: ReturnType<typeof mapReceivableInvoiceToFirestoreDoc>;
+    try {
+      docPayload = mapReceivableInvoiceToFirestoreDoc(invoice, today);
+    } catch (err: any) {
+      return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: 'VALIDATION_FAILED', error: err?.message || 'The invoice is missing details.' };
+    }
+    const res = await this.fs.createDocument('outstandingPayments', invoice.id, docPayload, {
       auditAction: 'CUSTOMER_INVOICE_RECORDED',
       auditDetails: `Invoice ${invoiceNumber} of INR ${amountInr} for ${customer.name}`,
     });
-    if (!res.success || !res.data) {
+    if (!res.success) {
       return { success: false, persistedToFirestore: false, persistedToRtdb: false, code: res.code, error: res.message };
     }
-    return { success: true, persistedToFirestore: true, persistedToRtdb: false, code: 'OK', data: updated };
+    return {
+      success: true,
+      persistedToFirestore: true,
+      persistedToRtdb: false,
+      code: 'OK',
+      data: aggregateCustomerReceivable({
+        customerId: customer.id,
+        customerName: customer.name,
+        creditLimit: customer.creditLimit,
+        carriedOver: current?.carriedOver,
+        carriedOverOldestDate: current?.oldestInvoiceDate,
+        invoices: [...(current?.invoices || []), invoice],
+        today,
+      }),
+    };
   }
 
   async upsertCustomer(

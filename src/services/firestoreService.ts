@@ -381,6 +381,7 @@ export interface FirestoreOutstandingPaymentDoc {
   invoiceAmountINR: number;
   receivedAmountINR: number;
   balanceAmountINR: number;
+  daysOverdue?: number;
   ageingBucket: '0-30 Days' | '31-60 Days' | '61-90 Days' | '90+ Days';
   status: 'Current' | 'Overdue' | 'Critical Overdue' | 'Paid';
   lastFollowUpDate?: string;

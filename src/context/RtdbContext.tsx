@@ -1550,7 +1550,9 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
       input.amountInr,
       input.invoiceDate,
       input.invoiceNumber,
-      currentUser
+      currentUser,
+      input.dueDate,
+      order.id
     );
     if (!recRes.success || !recRes.data) {
       return {

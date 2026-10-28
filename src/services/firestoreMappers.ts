@@ -11,6 +11,7 @@ import {
   OrderJourney,
   OrderStatus,
   OutstandingAgeingRecord,
+  ReceivableInvoice,
   PowerConsumptionLog,
   Product,
   PurchaseOrderRecord,
@@ -1709,6 +1710,144 @@ export function mapFirestoreDocToOutstanding(
     oldestInvoiceDate: doc.invoiceDate,
     dataOrigin: doc.dataOrigin === 'demo_sandbox' ? 'demo_sandbox' : 'production',
   };
+}
+
+/** Local calendar date (YYYY-MM-DD), not UTC, so ageing turns over at Indian midnight. */
+export function localDateIso(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const dayNumber = (iso: string) => Math.floor(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / 86_400_000);
+
+/** Whole days from `fromIso` to `toIso` (dates only). */
+export function daysBetween(fromIso: string, toIso: string): number {
+  return dayNumber(toIso) - dayNumber(fromIso);
+}
+
+type AgeBucket = 'bucket0to30' | 'bucket31to60' | 'bucket61to90' | 'bucket90Plus';
+const bucketForAge = (days: number): AgeBucket =>
+  days > 90 ? 'bucket90Plus' : days > 60 ? 'bucket61to90' : days > 30 ? 'bucket31to60' : 'bucket0to30';
+const BUCKET_LABEL: Record<AgeBucket, FirestoreOutstandingPaymentDoc['ageingBucket']> = {
+  bucket0to30: '0-30 Days',
+  bucket31to60: '31-60 Days',
+  bucket61to90: '61-90 Days',
+  bucket90Plus: '90+ Days',
+};
+
+const LEGACY_AGEING_LABEL = 'Ageing Schedule';
+
+/** Per-customer balances saved as fixed buckets (older records) rather than one record per invoice. */
+export function isCarriedOverAgeingDoc(doc: FirestoreOutstandingPaymentDoc): boolean {
+  return unpackMeta(doc.remarks, '').primary === LEGACY_AGEING_LABEL;
+}
+
+export function mapReceivableInvoiceToFirestoreDoc(
+  inv: ReceivableInvoice,
+  today = localDateIso(),
+  dataOrigin: DataRecordOrigin = 'production'
+): FirestoreOutstandingPaymentDoc {
+  const age = Math.max(0, daysBetween(inv.invoiceDate, today));
+  const overdue = Math.max(0, daysBetween(inv.dueDate, today));
+  return {
+    invoiceId: inv.id,
+    ...(inv.orderId ? { orderId: inv.orderId } : {}),
+    customerId: inv.customerId,
+    customerName: requiredText(inv.customerName, 160, 'The invoice has no customer.'),
+    invoiceDate: inv.invoiceDate,
+    dueDate: inv.dueDate,
+    invoiceAmountINR: Math.max(0, inv.amount),
+    receivedAmountINR: Math.max(0, inv.received),
+    balanceAmountINR: Math.max(0, inv.balance),
+    daysOverdue: overdue,
+    ageingBucket: BUCKET_LABEL[bucketForAge(age)],
+    status: inv.balance <= 0 ? 'Paid' : overdue > 0 ? (age > 90 ? 'Critical Overdue' : 'Overdue') : 'Current',
+    remarks: packMeta(requiredText(inv.invoiceNumber, 64, 'Enter the invoice number.'), {}, 400),
+    updatedAt: new Date().toISOString(),
+    dataOrigin,
+  };
+}
+
+export function mapFirestoreDocToReceivableInvoice(doc: FirestoreOutstandingPaymentDoc): ReceivableInvoice {
+  return {
+    id: doc.invoiceId,
+    invoiceNumber: unpackMeta(doc.remarks, doc.invoiceId).primary,
+    customerId: doc.customerId || '',
+    customerName: doc.customerName,
+    orderId: doc.orderId,
+    invoiceDate: doc.invoiceDate.slice(0, 10),
+    dueDate: doc.dueDate.slice(0, 10),
+    amount: doc.invoiceAmountINR,
+    received: doc.receivedAmountINR,
+    balance: doc.balanceAmountINR,
+  };
+}
+
+/** One customer's dues: carried-over buckets plus open invoices aged from their invoice date. */
+export function aggregateCustomerReceivable(params: {
+  customerId: string;
+  customerName: string;
+  creditLimit: number;
+  carriedOver?: OutstandingAgeingRecord['carriedOver'];
+  carriedOverOldestDate?: string;
+  invoices: ReceivableInvoice[];
+  today?: string;
+}): OutstandingAgeingRecord {
+  const today = params.today || localDateIso();
+  const b = { bucket0to30: 0, bucket31to60: 0, bucket61to90: 0, bucket90Plus: 0, ...(params.carriedOver || {}) };
+  const open = params.invoices.filter((i) => i.balance > 0).sort((x, y) => x.invoiceDate.localeCompare(y.invoiceDate));
+  for (const inv of open) b[bucketForAge(Math.max(0, daysBetween(inv.invoiceDate, today)))] += inv.balance;
+  const round = (n: number) => Number(n.toFixed(2));
+  const carried = params.carriedOver
+    ? params.carriedOver.bucket0to30 + params.carriedOver.bucket31to60 + params.carriedOver.bucket61to90 + params.carriedOver.bucket90Plus
+    : 0;
+  const total = round(b.bucket0to30 + b.bucket31to60 + b.bucket61to90 + b.bucket90Plus);
+  const dates = [...(carried > 0 && params.carriedOverOldestDate ? [params.carriedOverOldestDate] : []), ...open.map((i) => i.invoiceDate)].sort();
+  return {
+    customerId: params.customerId,
+    customerName: params.customerName,
+    totalOutstanding: total,
+    bucket0to30: round(b.bucket0to30),
+    bucket31to60: round(b.bucket31to60),
+    bucket61to90: round(b.bucket61to90),
+    bucket90Plus: round(b.bucket90Plus),
+    creditLimit: params.creditLimit,
+    creditExceeded: params.creditLimit > 0 && total > params.creditLimit,
+    oldestInvoiceDate: dates[0] || '',
+    invoices: params.invoices,
+    carriedOver: params.carriedOver,
+    dataOrigin: 'production',
+  };
+}
+
+/** Builds each customer's receivable from the stored records (per-invoice and carried-over). */
+export function buildOutstandingAgeing(
+  docs: FirestoreOutstandingPaymentDoc[],
+  customers: { id: string; name: string; creditLimit: number }[],
+  today = localDateIso()
+): OutstandingAgeingRecord[] {
+  const groups = new Map<string, { name: string; carried?: OutstandingAgeingRecord; invoices: ReceivableInvoice[] }>();
+  for (const doc of docs) {
+    const carried = isCarriedOverAgeingDoc(doc);
+    const id = carried ? doc.customerId || doc.invoiceId : doc.customerId || doc.customerName;
+    const g = groups.get(id) || { name: doc.customerName, invoices: [] };
+    if (carried) g.carried = mapFirestoreDocToOutstanding(doc);
+    else g.invoices.push(mapFirestoreDocToReceivableInvoice(doc));
+    groups.set(id, g);
+  }
+  return [...groups.entries()].map(([customerId, g]) => {
+    const customer = customers.find((c) => c.id === customerId);
+    return aggregateCustomerReceivable({
+      customerId,
+      customerName: customer?.name || g.name,
+      creditLimit: customer ? customer.creditLimit : g.carried?.creditLimit || 0,
+      carriedOver: g.carried
+        ? { bucket0to30: g.carried.bucket0to30, bucket31to60: g.carried.bucket31to60, bucket61to90: g.carried.bucket61to90, bucket90Plus: g.carried.bucket90Plus }
+        : undefined,
+      carriedOverOldestDate: g.carried?.oldestInvoiceDate,
+      invoices: g.invoices,
+      today,
+    });
+  });
 }
 
 export function mapActionQueueToFirestoreDoc(
