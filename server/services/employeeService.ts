@@ -773,19 +773,20 @@ export class EmployeeManagementService {
 
     await this.storeAdapter.saveEmployeeProfile(updatedProfile);
 
-    try {
-      await this.authAdapter.setCustomUserClaims(cleanUid, {
+    // Claims and the audit entry are independent, so write them together.
+    const claimsWrite = this.authAdapter
+      .setCustomUserClaims(cleanUid, {
         role: newCanonicalRole,
         rbacGroup: newRbacGroup,
+      })
+      .catch(() => {
+        // Non-fatal
       });
-    } catch {
-      // Non-fatal
-    }
 
     const isHigherAuthorityPromotion =
       newCanonicalRole === 'ceo' && currentCanonicalRole !== 'ceo';
 
-    await this.writeSanitizedAuditLog({
+    const auditWrite = this.writeSanitizedAuditLog({
       actor,
       action: 'EMPLOYEE_ROLE_UPDATED',
       targetUid: cleanUid,
@@ -808,6 +809,7 @@ export class EmployeeManagementService {
         designation: newDesignation,
       },
     });
+    await Promise.all([claimsWrite, auditWrite]);
 
     return {
       status: 200,
