@@ -40,6 +40,15 @@ import {
 } from '@/components/ui/overlays';
 import { formatDate } from '@/lib/utils';
 
+// Stored in UTC; shown in Indian time, e.g. "28 Oct 2026, 12:30 pm".
+const istTime = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+
 type Result = { ok: true } | { ok: false; error: string };
 
 const STATUS_BADGE: Record<string, { tone: 'success' | 'warning' | 'danger' | 'neutral'; label: string }> = {
@@ -226,8 +235,8 @@ export function AdminPage() {
           sheetName: 'Audit log',
           reportTitle: 'MONTEX MIS — AUDIT LOG',
           reportSubtitle: `${auditLogs.length} events`,
-          headers: ['Time', 'Who', 'Action', 'Record', 'Details', 'Outcome'],
-          rows: auditLogs.map((a) => [a.timestamp, a.actorEmail || a.userName, a.action, `${a.collectionName}/${a.documentId}`, a.newValueSummary, a.outcome || '']),
+          headers: ['Time (IST)', 'Who', 'Action', 'Record', 'Details', 'Outcome'],
+          rows: auditLogs.map((a) => [istTime(a.timestamp), a.actorEmail || a.userName, a.action, `${a.collectionName}/${a.documentId}`, a.newValueSummary, a.outcome || '']),
         },
       ],
       currentUser.email
@@ -319,7 +328,7 @@ export function AdminPage() {
   ];
 
   const auditColumns: Column<AuditLogEntry>[] = [
-    { id: 'time', header: 'Time', sortValue: (a) => a.timestamp, cell: (a) => <span className="whitespace-nowrap font-mono text-xs">{a.timestamp?.replace('T', ' ').slice(0, 16)}</span> },
+    { id: 'time', header: 'Time', sortValue: (a) => a.timestamp, cell: (a) => <span className="whitespace-nowrap font-mono text-xs">{istTime(a.timestamp)}</span> },
     { id: 'who', header: 'Who', cell: (a) => <span className="line-clamp-1 max-w-48">{a.actorName || a.userName || a.actorEmail}</span> },
     { id: 'action', header: 'Action', sortValue: (a) => a.action, cell: (a) => <Badge tone={a.outcome && a.outcome !== 'SUCCESS' ? 'danger' : 'neutral'}>{a.action.replace(/_/g, ' ').toLowerCase()}</Badge> },
     { id: 'what', header: 'Details', hideBelow: 'md', cell: (a) => <span className="line-clamp-2 max-w-md text-muted-foreground">{a.newValueSummary || (typeof a.details === 'string' ? a.details : '')}</span> },
