@@ -310,8 +310,8 @@ export function QualityPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile label="Waiting clearance" icon={ShieldCheck} tone={waiting ? 'warning' : 'neutral'} value={waiting} hint="Orders at inspection" onClick={() => setTab('queue')} />
-        <StatTile label="Pass rate" icon={ClipboardCheck} value={passRate === null ? '—' : formatNumber(passRate, 1)} unit={passRate === null ? undefined : '%'} hint={`${formatNumber(passed + rejected)} pcs judged`} onClick={() => setTab('lots')} />
-        <StatTile label="Rejected" icon={AlertOctagon} tone={rejected ? 'danger' : 'neutral'} value={formatNumber(rejected)} unit="pcs" hint="All recorded lots" onClick={() => setTab('lots')} />
+        <StatTile label="Pass rate" icon={ClipboardCheck} value={passRate === null ? '—' : formatNumber(passRate, 1)} unit={passRate === null ? undefined : '%'} hint={`${formatNumber(passed + rejected)} pcs judged, last 90 days`} onClick={() => setTab('lots')} />
+        <StatTile label="Rejected" icon={AlertOctagon} tone={rejected ? 'danger' : 'neutral'} value={formatNumber(rejected)} unit="pcs" hint="Lots in the last 90 days" onClick={() => setTab('lots')} />
         <StatTile label="Open NCRs" icon={AlertOctagon} tone={openNcrs.length ? 'warning' : 'neutral'} value={openNcrs.length} hint={`${ncrCapaRecords.length - openNcrs.length} closed`} onClick={() => setTab('ncr')} />
       </div>
 

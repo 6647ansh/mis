@@ -1,11 +1,13 @@
 import {
   collection as firestoreCollection,
   doc as firestoreDoc,
+  getDocs,
   limit as firestoreLimit,
   onSnapshot as onFirestoreSnapshot,
   orderBy as firestoreOrderBy,
   query as firestoreQuery,
   runTransaction,
+  where as firestoreWhere,
 } from 'firebase/firestore';
 import {
   auth,
@@ -211,6 +213,41 @@ const ORDER_FIELDS_BY_ROLE: Partial<Record<string, string[]>> = {
   quality: ['currentStage', 'overallStatus', 'mtcStatus', 'stages', 'updatedAt'],
   dispatch: ['currentStage', 'overallStatus', 'dispatchStatus', 'stages', 'updatedAt'],
   finance: ['currentStage', 'overallStatus', 'invoiceNo', 'paymentStatus', 'stages', 'updatedAt'],
+};
+
+/**
+ * Day-by-day logs that only grow. Live screens load the last RECENT_WINDOW_DAYS of these
+ * (by the date field named here); older entries are fetched only when someone asks for them
+ * (a report period further back, an old order's documents). Totals on orders and stock are
+ * kept on the order and material records, so they do not depend on this window.
+ */
+export const RECENT_WINDOW_DAYS = 90;
+export const WINDOWED_LOG_DATE_FIELD = {
+  machineLogs: 'loggedAt',
+  furnaceLogs: 'startedAt',
+  powerLogs: 'logDate',
+  stockMovements: 'timestamp',
+  qualityInspections: 'inspectionDate',
+  dispatches: 'dispatchDate',
+  dimensionalReports: 'inspectedAt',
+} as const;
+export type WindowedLogCollection = keyof typeof WINDOWED_LOG_DATE_FIELD;
+
+/** First day (YYYY-MM-DD, local) inside the live window. */
+export function recentWindowStart(now = new Date()): string {
+  const d = new Date(now);
+  d.setDate(d.getDate() - RECENT_WINDOW_DAYS);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const WINDOWED_MAPPERS: Record<WindowedLogCollection, (doc: any) => any> = {
+  machineLogs: mapFirestoreDocToMachineLog,
+  furnaceLogs: mapFirestoreDocToFurnaceLog,
+  powerLogs: mapFirestoreDocToPowerLog,
+  stockMovements: mapFirestoreDocToStockMovement,
+  qualityInspections: mapFirestoreDocToQualityInspection,
+  dispatches: mapFirestoreDocToDispatch,
+  dimensionalReports: mapFirestoreDocToDimensionalReport,
 };
 
 export interface CutoverWriteResult<T = void> {
@@ -2527,9 +2564,15 @@ export class MontexCutoverEngine {
       }, 250);
     };
 
+    const windowStart = recentWindowStart();
     const unsubs = names.map((name) =>
       onFirestoreSnapshot(
-        firestoreCollection(firestore, name),
+        name in WINDOWED_LOG_DATE_FIELD
+          ? firestoreQuery(
+              firestoreCollection(firestore, name),
+              firestoreWhere(WINDOWED_LOG_DATE_FIELD[name as WindowedLogCollection], '>=', windowStart)
+            )
+          : firestoreCollection(firestore, name),
         (qs) => {
           errors.delete(name);
           cache.set(name, qs.docs.map((d) => ({ __id: d.id, ...d.data() })));
@@ -2567,6 +2610,61 @@ export class MontexCutoverEngine {
       if (timer) clearTimeout(timer);
       unsubs.forEach((u) => u());
     };
+  }
+
+  /**
+   * Log entries between two dates (YYYY-MM-DD, inclusive), straight from the database.
+   * Used when a report period reaches back before the live window.
+   */
+  async loadLogHistory<T = any>(
+    name: WindowedLogCollection,
+    fromDate: string,
+    toDate: string,
+    user: UserProfile
+  ): Promise<{ success: boolean; items: T[]; error?: string }> {
+    if (!canRoleReadCollection(user.role, name)) return { success: false, items: [], error: 'Your role cannot read these records.' };
+    try {
+      const field = WINDOWED_LOG_DATE_FIELD[name];
+      const snap = await getDocs(
+        firestoreQuery(
+          firestoreCollection(firestore, name),
+          firestoreWhere(field, '>=', fromDate),
+          firestoreWhere(field, '<=', `${toDate}\uf8ff`)
+        )
+      );
+      const items: T[] = [];
+      for (const d of snap.docs) {
+        try {
+          items.push(WINDOWED_MAPPERS[name]({ __id: d.id, ...d.data() }));
+        } catch {
+          // A record that cannot be read is left out rather than shown with invented values.
+        }
+      }
+      return { success: true, items };
+    } catch (err: any) {
+      return { success: false, items: [], error: err?.message || 'Could not load older records.' };
+    }
+  }
+
+  /** Every entry of one log collection for a single order, whatever its date. */
+  async loadOrderLogs<T = any>(
+    name: WindowedLogCollection,
+    orderId: string,
+    user: UserProfile
+  ): Promise<T[]> {
+    if (!canRoleReadCollection(user.role, name)) return [];
+    try {
+      const snap = await getDocs(firestoreQuery(firestoreCollection(firestore, name), firestoreWhere('orderId', '==', orderId)));
+      return snap.docs.flatMap((d) => {
+        try {
+          return [WINDOWED_MAPPERS[name]({ __id: d.id, ...d.data() })];
+        } catch {
+          return [];
+        }
+      });
+    } catch {
+      return [];
+    }
   }
 
   async setOrderClearance(

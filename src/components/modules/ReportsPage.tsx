@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { BarChart3, Boxes, ClipboardList, Download, Factory, FileDown, FileSpreadsheet, FileText, ShieldCheck, Truck, Wallet } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
 import type { MontexPdfDocumentPayload } from '../../services/documentExportService';
 import type { RbacRoleGroup } from '../../types/mis';
+import { RECENT_WINDOW_DAYS, recentWindowStart, type WindowedLogCollection } from '../../services/firestoreCutoverService';
 import { DocumentPreviewModal } from '../common/DocumentPreviewModal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,14 +26,22 @@ type Report = {
   dateCol?: number;
   headers: string[];
   rows: Cell[][];
+  /** Day-by-day log behind a dated report; periods before the live window are fetched from it. */
+  log?: WindowedLogCollection;
+  toRow?: (x: any) => Cell[];
 };
+
+const dispatchRow = (d: any): Cell[] => [d.id, d.date, d.jobNumber, d.customer, d.product, d.quantity, d.weightMt, d.transporter, d.vehicleNo, d.lrNumber, d.invoiceRef || ''];
+const shiftRow = (m: any): Cell[] => [m.date, m.shift, m.machineName, m.operatorName, m.jobNumber, m.inputBilletsPcs, m.okPcs, m.rejectedPcs, m.reworkPcs, m.downtimeMinutes];
+const inspectionRow = (q: any): Cell[] => [q.date, q.jobNumber, q.customer, q.product, q.heatNo, q.inspectedQty, q.passedQty, q.rejectedQty, q.inspectedQty ? Number(((q.rejectedQty / q.inspectedQty) * 100).toFixed(1)) : 0, q.mtcNumber, q.inspector];
+const movementRow = (v: any): Cell[] => [String(v.timestamp || '').slice(0, 10), v.materialCode, v.materialGrade, v.movementType, v.heatNumber, v.quantityMt, v.balanceAfterMt, v.referenceDoc, v.performedBy];
 
 const ALL_GROUPS: RbacRoleGroup[] = ['Admin', 'Management', 'Finance', 'Sales', 'Production'];
 const MONEY_GROUPS: RbacRoleGroup[] = ['Admin', 'Management', 'Finance'];
 const firstOfMonth = () => `${todayIso().slice(0, 7)}-01`;
 
 export function ReportsPage() {
-  const { salesOrders, dispatches, qualityInspections, machineLogs, outstandingAgeing, rawMaterials, stockMovements, jobCostSheets, currentUser, activeRbacGroup } = useRtdb();
+  const { salesOrders, dispatches, qualityInspections, machineLogs, outstandingAgeing, rawMaterials, stockMovements, jobCostSheets, currentUser, activeRbacGroup, loadLogHistory } = useRtdb();
   const [reportId, setReportId] = useState('orders');
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(todayIso());
@@ -64,7 +73,9 @@ export function ReportsPage() {
         groups: ALL_GROUPS,
         dateCol: 1,
         headers: ['Consignment', 'Date', 'Job', 'Customer', 'Product', 'Qty (pcs)', 'Weight (MT)', 'Transporter', 'Vehicle', 'LR no.', 'Invoice'],
-        rows: dispatches.map((d) => [d.id, d.date, d.jobNumber, d.customer, d.product, d.quantity, d.weightMt, d.transporter, d.vehicleNo, d.lrNumber, d.invoiceRef || '']),
+        rows: dispatches.map(dispatchRow),
+        log: 'dispatches',
+        toRow: dispatchRow,
       },
       {
         id: 'production',
@@ -74,7 +85,9 @@ export function ReportsPage() {
         groups: ALL_GROUPS,
         dateCol: 0,
         headers: ['Date', 'Shift', 'Machine', 'Operator', 'Job', 'Billets in', 'OK', 'Rejected', 'Rework', 'Downtime (min)'],
-        rows: machineLogs.map((m) => [m.date, m.shift, m.machineName, m.operatorName, m.jobNumber, m.inputBilletsPcs, m.okPcs, m.rejectedPcs, m.reworkPcs, m.downtimeMinutes]),
+        rows: machineLogs.map(shiftRow),
+        log: 'machineLogs',
+        toRow: shiftRow,
       },
       {
         id: 'quality',
@@ -84,7 +97,9 @@ export function ReportsPage() {
         groups: ALL_GROUPS,
         dateCol: 0,
         headers: ['Date', 'Job', 'Customer', 'Product', 'Heat', 'Inspected', 'Passed', 'Rejected', 'Rejection %', 'MTC', 'Inspector'],
-        rows: qualityInspections.map((q) => [q.date, q.jobNumber, q.customer, q.product, q.heatNo, q.inspectedQty, q.passedQty, q.rejectedQty, q.inspectedQty ? Number(((q.rejectedQty / q.inspectedQty) * 100).toFixed(1)) : 0, q.mtcNumber, q.inspector]),
+        rows: qualityInspections.map(inspectionRow),
+        log: 'qualityInspections',
+        toRow: inspectionRow,
       },
       {
         id: 'stock',
@@ -103,7 +118,9 @@ export function ReportsPage() {
         groups: ALL_GROUPS,
         dateCol: 0,
         headers: ['Date', 'Material', 'Grade', 'Type', 'Heat', 'Qty (MT)', 'Balance (MT)', 'Reference', 'By'],
-        rows: stockMovements.map((v) => [String(v.timestamp || '').slice(0, 10), v.materialCode, v.materialGrade, v.movementType, v.heatNumber, v.quantityMt, v.balanceAfterMt, v.referenceDoc, v.performedBy]),
+        rows: stockMovements.map(movementRow),
+        log: 'stockMovements',
+        toRow: movementRow,
       },
       {
         id: 'receivables',
@@ -135,14 +152,34 @@ export function ReportsPage() {
 
   const visible = reports.filter((r) => r.groups.includes(activeRbacGroup as RbacRoleGroup));
   const report = visible.find((r) => r.id === reportId) || visible[0];
+  // Screens hold only the last RECENT_WINDOW_DAYS of logs; a period that starts earlier is read from the full history.
+  const windowStart = recentWindowStart();
+  const needsHistory = Boolean(report?.log && from && from < windowStart);
+  const historyKey = needsHistory && report ? `${report.id}|${from}|${to}` : '';
+  const [history, setHistory] = useState<{ key: string; rows: Cell[][]; error?: string } | null>(null);
+  useEffect(() => {
+    if (!historyKey || !report?.log || !report.toRow) return;
+    let cancelled = false;
+    const toRow = report.toRow;
+    loadLogHistory(report.log, from, to || todayIso()).then((res) => {
+      if (!cancelled) setHistory({ key: historyKey, rows: res.items.map(toRow), error: res.success ? undefined : res.error });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyKey]);
+  const historyReady = needsHistory && history?.key === historyKey;
+
   const rows = useMemo(() => {
     if (!report) return [];
     if (report.dateCol === undefined) return report.rows;
-    return report.rows.filter((r) => {
+    const source = needsHistory ? (historyReady ? history!.rows : []) : report.rows;
+    return source.filter((r) => {
       const d = String(r[report.dateCol!] || '');
       return (!from || d >= from) && (!to || d <= to);
     });
-  }, [report, from, to]);
+  }, [report, from, to, needsHistory, historyReady, history]);
 
   if (!report) {
     return (
@@ -262,8 +299,13 @@ export function ReportsPage() {
         <div>
           <h2 className="text-base font-semibold">{report.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {period} · {rows.length} rows {report.groups === MONEY_GROUPS && <Badge tone="bronze" className="ml-1">Finance & management only</Badge>}
+            {period} · {needsHistory && !historyReady ? 'loading older records…' : `${rows.length} rows`} {report.groups === MONEY_GROUPS && <Badge tone="bronze" className="ml-1">Finance & management only</Badge>}
           </p>
+          {needsHistory && (
+            <p className="text-xs text-muted-foreground">
+              {history?.error && historyReady ? `Older records could not be loaded: ${history.error}` : `Includes records older than ${RECENT_WINDOW_DAYS} days, read from the full history.`}
+            </p>
+          )}
         </div>
         {report.dateCol !== undefined && (
           <div className="flex items-end gap-2">

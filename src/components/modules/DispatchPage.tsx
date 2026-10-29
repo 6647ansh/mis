@@ -190,7 +190,7 @@ export function DispatchPage() {
       <section className="space-y-3">
         <div>
           <h2 className="text-base font-semibold">Consignment register</h2>
-          <p className="text-sm text-muted-foreground">Every consignment shipped, newest first</p>
+          <p className="text-sm text-muted-foreground">Consignments from the last 90 days, newest first. Older ones are in Reports.</p>
         </div>
         <DataTable
           rows={dispatches}

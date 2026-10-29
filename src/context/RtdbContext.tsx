@@ -68,6 +68,7 @@ import {
 } from '../services/adminEmployeeApi';
 import {
   CutoverWriteResult,
+  type WindowedLogCollection,
   DEFAULT_CLEAN_ALERT_THRESHOLDS,
   ZERO_DASHBOARD_KPIS,
   ZERO_PRODUCTION_SUMMARY,
@@ -354,6 +355,10 @@ interface RtdbContextType {
     customer: Customer,
     isNew: boolean
   ) => Promise<CutoverWriteResult<Customer>>;
+  /** Log entries in a date range, fetched on demand (for periods older than the live window). */
+  loadLogHistory: <T = any>(name: WindowedLogCollection, fromDate: string, toDate: string) => Promise<{ success: boolean; items: T[]; error?: string }>;
+  /** All log entries of one order, whatever their date. */
+  loadOrderLogs: <T = any>(name: WindowedLogCollection, orderId: string) => Promise<T[]>;
   upsertRawMaterialRecord: (
     material: RawMaterialStock,
     isNew: boolean
@@ -1486,6 +1491,11 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return res;
   };
+
+  const loadLogHistory = <T = any,>(name: WindowedLogCollection, fromDate: string, toDate: string) =>
+    cutoverEngine.loadLogHistory<T>(name, fromDate, toDate, currentUser);
+  const loadOrderLogs = <T = any,>(name: WindowedLogCollection, orderId: string) =>
+    cutoverEngine.loadOrderLogs<T>(name, orderId, currentUser);
 
   const upsertRawMaterialRecord = async (material: RawMaterialStock, isNew: boolean) => {
     const res = await cutoverEngine.upsertRawMaterial(material, isNew, currentUser);
@@ -2937,6 +2947,8 @@ export const RtdbProvider: React.FC<{ children: React.ReactNode }> = ({ children
         recordCustomerPaymentRecord,
         upsertCustomerRecord,
         upsertRawMaterialRecord,
+        loadLogHistory,
+        loadOrderLogs,
         upsertSupplierRecord,
         recordInvoiceRecord,
         upsertProductRecord,

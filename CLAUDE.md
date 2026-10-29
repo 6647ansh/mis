@@ -51,6 +51,7 @@ system is deployed, and how the owner wants work done. Keep it up to date when s
 - Receivables: per-invoice docs in `outstandingPayments` (id `INV-…`, invoice number in `remarks`); older per-customer bucket docs (`remarks` starts "Ageing Schedule") are "carried over". Built by `buildOutstandingAgeing` in the mappers.
 - Masters that can be added in-app: customers, products, raw materials (Inventory → Add material), mills (Purchase → New → Approved mill).
 - Backup: `src/services/backupService.ts` (Super Admin only, .json + .xlsx). Audit times shown in IST.
+- 90-day window: live screens load only the last 90 days of the day-by-day logs (machine, furnace, power, stock movements, quality lots, dispatches, dimensional reports; `WINDOWED_LOG_DATE_FIELD` in the cutover service). Reports fetch older records when the period starts earlier (`loadLogHistory`); an old order's MTC reads its lots by order (`loadOrderLogs`). Order totals, stock, receivables, masters, open work are not windowed. Backup reads everything.
 
 ## Testing
 
@@ -68,4 +69,4 @@ system is deployed, and how the owner wants work done. Keep it up to date when s
 
 - Pilot with Montex: 2–3 weeks alongside their old process; they send screenshots of problems.
 - Known gaps: Production "Plan" tab is view-only; Order Tracker "Material / heat allocation" step has no input yet; order-level invoice paid amount is not updated by customer payments (customer dues are).
-- Possible next work (owner to choose): 90-day window on daily screens for free-plan limits; move code to `main` (then change Render's branch); custom domain.
+- Possible next work (owner to choose): move code to `main` (then change Render's branch); custom domain.

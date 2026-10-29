@@ -12,7 +12,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useRtdb } from '../../context/RtdbContext';
-import type { OrderJourney, OrderStatus } from '../../types/mis';
+import type { DimensionalInspectionReport, OrderJourney, OrderStatus, QualityInspectionRecord } from '../../types/mis';
 import type { MontexPdfDocumentPayload } from '../../services/documentExportService';
 import { DocumentPreviewModal } from '../common/DocumentPreviewModal';
 import { OrderClearancePanel } from './OrderClearancePanel';
@@ -145,7 +145,7 @@ function Detail({ label, value, mono }: { label: string; value: React.ReactNode;
 }
 
 export function OrderTrackerPage({ initialOrderId }: { initialOrderId?: string; onNavigateToModule?: (id: string) => void }) {
-  const { salesOrders, customers, products, qualityInspections, dimensionalReports, handovers, usersList, currentUser, activeRbacGroup } = useRtdb();
+  const { salesOrders, customers, products, qualityInspections, dimensionalReports, handovers, usersList, currentUser, activeRbacGroup, loadOrderLogs } = useRtdb();
   const [selectedId, setSelectedId] = useState<string | undefined>(initialOrderId);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<MontexPdfDocumentPayload | null>(null);
@@ -187,12 +187,23 @@ export function OrderTrackerPage({ initialOrderId }: { initialOrderId?: string; 
       toast.error('Export not allowed', { description: check.error });
       return;
     }
+    // Screens hold only recent inspections; an older order's records are read from the full history.
+    const lot =
+      kind === 'mtc'
+        ? qualityInspections.find((q) => q.jobNumber === order.jobNumber) ||
+          (await loadOrderLogs<QualityInspectionRecord>('qualityInspections', order.id)).find((q) => q.jobNumber === order.jobNumber)
+        : undefined;
+    const dims =
+      kind === 'mtc'
+        ? dimensionalReports.find((d) => d.jobNumber === order.jobNumber) ||
+          (await loadOrderLogs<DimensionalInspectionReport>('dimensionalReports', order.id)).find((d) => d.jobNumber === order.jobNumber)
+        : undefined;
     const payload =
       kind === 'mtc'
         ? svc.buildMtcDraftPdfPayload(
             order,
-            qualityInspections.find((q) => q.jobNumber === order.jobNumber),
-            dimensionalReports.find((d) => d.jobNumber === order.jobNumber),
+            lot,
+            dims,
             currentUser,
             activeRbacGroup
           )
