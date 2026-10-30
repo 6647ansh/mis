@@ -1104,8 +1104,7 @@ export type WorkspaceTabId =
   | 'finance'
   | 'reports'
   | 'notifications'
-  | 'admin'
-  | 'blueprint';
+  | 'admin';
 
 export const WORKSPACE_TAB_TO_MODULE: Readonly<Record<WorkspaceTabId, MisModuleId | 'Tasks & Handovers'>> = {
   dashboard: 'Dashboard',
@@ -1129,7 +1128,6 @@ export const WORKSPACE_TAB_TO_MODULE: Readonly<Record<WorkspaceTabId, MisModuleI
   reports: 'Reports & Exports',
   notifications: 'Alerts & Thresholds',
   admin: 'User Management',
-  blueprint: 'Dashboard',
 };
 
 export function canRoleAccessWorkspaceTab(
@@ -1140,7 +1138,7 @@ export function canRoleAccessWorkspaceTab(
   if (accountStatus !== 'active') return false;
   const canonical = normalizeRoleInput(role);
   if (!canonical) return false;
-  if (tabId === 'tasks' || tabId === 'tasks_accountability' || tabId === 'dashboard' || tabId === 'blueprint') {
+  if (tabId === 'tasks' || tabId === 'tasks_accountability' || tabId === 'dashboard') {
     return true;
   }
   // Enquiries hold prospect contacts: only the people who sell (rules match this).

@@ -41,7 +41,6 @@ const lazyNamed = <K extends string>(
 
 const CommandCenter = lazyNamed(() => import('./components/dashboard/CommandCenter'), 'CommandCenter');
 const OrderTrackerPage = lazyNamed(() => import('./components/orders/OrderTrackerPage'), 'OrderTrackerPage');
-const BlueprintView = lazyNamed(() => import('./components/blueprint/BlueprintView'), 'BlueprintView');
 const QuotationsPage = lazyNamed(() => import('./components/modules/QuotationsPage'), 'QuotationsPage');
 const LeadsPage = lazyNamed(() => import('./components/modules/LeadsPage'), 'LeadsPage');
 const SalesOrdersPage = lazyNamed(() => import('./components/modules/SalesOrdersPage'), 'SalesOrdersPage');
@@ -219,8 +218,6 @@ function MontexWorkspace() {
                 {currentTab === 'tasks_accountability' && (
                   <TasksPage onSelectOrder={openOrder} />
                 )}
-
-                {currentTab === 'blueprint' && <BlueprintView />}
 
                 {currentTab === 'leads' && <LeadsPage onNavigate={handleNavigate} />}
                 {currentTab === 'quotations' && <QuotationsPage onSelectOrder={openOrder} />}
