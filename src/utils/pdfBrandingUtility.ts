@@ -44,7 +44,7 @@ let cachedMontexLogo: CachedLogoAsset | null = null;
 let logoLoadPromise: Promise<CachedLogoAsset | null> | null = null;
 
 /**
- * Preloads the official Montex Forge logo (`/assets/aistudio/image_5212971a.png`)
+ * Preloads the official Montex Forge logo (`/assets/brand/montex-logo.png`)
  * into an in-memory Base64 data URL with natural image dimensions so that synchronous
  * `jsPDF` exports can embed the official logo at its true aspect ratio without distortion.
  */

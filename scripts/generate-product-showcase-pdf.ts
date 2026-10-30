@@ -12,7 +12,7 @@ const EXECUTABLE_PATH =
 
 const ROOT_DIR = process.cwd();
 const SCREENSHOTS_DIR = path.join(ROOT_DIR, 'public/showcase-screenshots');
-const LOGO_PATH = path.join(ROOT_DIR, 'public/assets/aistudio/image_5212971a.png');
+const LOGO_PATH = path.join(ROOT_DIR, 'public/assets/brand/montex-logo.png');
 const PUBLIC_PDF_PATH = path.join(
   ROOT_DIR,
   'public/Montex_Forge_MIS_Product_Showcase_and_Roadmap.pdf'

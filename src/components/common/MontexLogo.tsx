@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const MONTEX_OFFICIAL_LOGO_PATH = '/assets/aistudio/image_5212971a.png';
+export const MONTEX_OFFICIAL_LOGO_PATH = '/assets/brand/montex-logo.png';
 
 interface MontexLogoProps {
   variant?: 'full' | 'compact';
@@ -12,7 +12,7 @@ interface MontexLogoProps {
 
 /**
  * Official Montex Forge Brand Identity Component.
- * - Directly embeds the official attached Montex Forge logo (`/assets/aistudio/image_5212971a.png`).
+ * - Directly embeds the official attached Montex Forge logo (`/assets/brand/montex-logo.png`).
  * - Strictly preserves the original proportions, orange M-ribbon symbol with flame/leaf emblem,
  *   red MONTEX lettering, and green FORGE text using `object-contain` without stretching,
  *   cropping, recolouring, or distorting.
